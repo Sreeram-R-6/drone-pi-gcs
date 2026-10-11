@@ -78,8 +78,9 @@ def _run(config, ui, timeout, report):
                         print(f'CONNECTED: {link_name}; receive-only telemetry. Flight commands remain locked.')
                         report.event('monitor_connected')
                     connected = True
-                    if direct:
-                        transport.request_monitor_telemetry()
+                    # Shared-router clients also need their own heartbeat and
+                    # flow/range requests; the router itself is not a GCS.
+                    transport.request_monitor_telemetry()
                     if ui:
                         streams = sum(bool(transport.store.samples[k]) for k in ('ATTITUDE','GPS_RAW_INT','BATTERY_STATUS','LOCAL_POSITION_NED'))
                         ui.view_state = 'BENCH ONLY / FLIGHT DISABLED' if config.get('_bench_only',False) else 'FC CONNECTED / FLIGHT LOCKED' if direct else 'LIVE / RECEIVE ONLY'

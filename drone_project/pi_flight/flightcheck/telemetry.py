@@ -205,9 +205,13 @@ class Transport:
         """
         self.require_live()
         now = time.monotonic()
+        # Keep heartbeat cadence independent from the five-second stream retry.
+        # A healthy UI must not appear lost to an enabled five-second failsafe.
+        if now-self.last_sent_heartbeat >= 1:
+            self.connection.mav.heartbeat_send(6, 8, 0, 0, 4)
+            self.last_sent_heartbeat = now
         if self.last_monitor_request is not None and now-self.last_monitor_request < 5:
             return
-        self.connection.mav.heartbeat_send(6, 8, 0, 0, 4)
         self.connection.mav.request_data_stream_send(*self.target, 0, 5, 1)
         for name in ('RC_OPTIONS','RSSI_TYPE'):
             self.connection.mav.param_request_read_send(*self.target,name.encode('ascii'),-1)

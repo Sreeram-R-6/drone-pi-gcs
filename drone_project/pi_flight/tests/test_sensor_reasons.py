@@ -70,6 +70,19 @@ class SensorReasonTests(unittest.TestCase):
         self.store.samples['OPTICAL_FLOW'][-1][1].update(flow_comp_m_x=float('nan'))
         self.assertEqual(self.checks()['optical flow'].state,'FAIL')
 
+    def test_compensated_flow_remains_source_when_rad_also_arrives(self):
+        self.c['flow'].update(sensor_id=0, min_quality=50, min_hz=1,
+                              max_gap_s=2, max_compensated_m_s=1)
+        for now in (0, 1, 2, 3):
+            self.store.put('OPTICAL_FLOW', {'sensor_id':0, 'quality':100,
+                'flow_comp_m_x':0.2, 'flow_comp_m_y':-0.1}, now)
+            self.store.put('OPTICAL_FLOW_RAD', {'sensor_id':0, 'quality':0,
+                'integration_time_us':0}, now)
+        checks = self.checks()
+        self.assertEqual(checks['optical flow'].state, 'PASS')
+        self.assertEqual(checks['optical flow'].measured['source'], 'OPTICAL_FLOW')
+        self.assertNotIn('OPTICAL_FLOW_RAD stream', checks)
+
     def test_unset_sensor_id_shows_observed_id(self):
         self.store.put('OPTICAL_FLOW',{'sensor_id':7},1)
         check = self.checks()['OPTICAL_FLOW stream']

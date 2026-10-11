@@ -12,6 +12,22 @@ from mavproxy_flightwatch import FlightWatch
 
 
 class TransportTests(unittest.TestCase):
+    def test_monitor_heartbeat_does_not_wait_for_stream_retry(self):
+        t = object.__new__(Transport)
+        t.require_live = lambda: None
+        t.connection = Mock()
+        t.target = (1, 1)
+        t.report = Mock()
+        t.last_sent_heartbeat = 0
+        t.last_monitor_request = None
+        with patch('flightcheck.telemetry.time.monotonic', return_value=100):
+            t.request_monitor_telemetry()
+        with patch('flightcheck.telemetry.time.monotonic', return_value=101):
+            t.request_monitor_telemetry()
+        self.assertEqual(t.connection.mav.heartbeat_send.call_count, 2)
+        self.assertEqual(t.connection.mav.request_data_stream_send.call_count, 1)
+        t.connection.mav.param_set_send.assert_not_called()
+
     def test_parameter_export_ignores_nonindexed_runtime_update(self):
         t = object.__new__(Transport)
         t.target = (1, 1)

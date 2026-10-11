@@ -91,7 +91,10 @@ def evaluate(store, config, start, end, airborne=False, mission_readiness=True):
                             explanation or ('' if ok else 'Outside requirement: '+requirement)))
     def rows(kind):
         return [d for t,d in store.samples.get(kind, []) if start <= t <= end]
-    flow_kind = 'OPTICAL_FLOW_RAD' if rows('OPTICAL_FLOW_RAD') else 'OPTICAL_FLOW'
+    # Match the dashboard's opt_m_x/opt_m_y/opt_qua source. A simultaneous
+    # RAD packet must not silently switch this sensor to a different check.
+    flow_kind = ('OPTICAL_FLOW' if rows('OPTICAL_FLOW') else
+                 'OPTICAL_FLOW_RAD' if rows('OPTICAL_FLOW_RAD') else 'OPTICAL_FLOW')
     streams = {
         "HEARTBEAT": config["sampling"]["heartbeat_hz"],
         "GPS_RAW_INT": config["sampling"]["position_hz"],
