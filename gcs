@@ -1,0 +1,5 @@
+#!/usr/bin/env bash
+# Open the terminal GCS; live receive-only view by default, --offline for preview.
+set -euo pipefail
+base=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)
+exec bash "$base/drone_project/pi_flight/launch_gcs.sh" "$@"

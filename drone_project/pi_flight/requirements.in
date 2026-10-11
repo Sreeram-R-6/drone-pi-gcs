@@ -1,0 +1,5 @@
+MAVProxy
+pymavlink
+PyYAML
+future # MAVProxy 1.8.74 rline imports future.builtins at CLI startup.
+tomli; python_version < "3.11"

@@ -1,0 +1,18 @@
+[Unit]
+Description=Drone MAVLink router (sole UART owner)
+After=local-fs.target
+
+[Service]
+Type=simple
+User=drone-router
+SupplementaryGroups=dialout
+StateDirectory=drone-router
+WorkingDirectory=/var/lib/drone-router
+ExecStart=/opt/drone-oled/venv/bin/drone-oled-router --config /etc/drone-oled/router.toml
+Restart=always
+RestartSec=3
+TimeoutStopSec=5
+NoNewPrivileges=true
+
+[Install]
+WantedBy=multi-user.target

@@ -1,0 +1,20 @@
+[Unit]
+Description=Local Drone OLED mirror and buttons
+After=drone-oled.service
+Wants=drone-oled.service
+
+[Service]
+Type=simple
+User=drone-oled
+WorkingDirectory=/var/lib/drone-oled
+ExecStart=/opt/drone-oled/venv/bin/drone-oled-web --socket /run/drone-oled/ui.sock --port 8090 --bind 127.0.0.1
+Restart=always
+RestartSec=2
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=true
+RestrictAddressFamilies=AF_INET AF_UNIX
+
+[Install]
+WantedBy=multi-user.target

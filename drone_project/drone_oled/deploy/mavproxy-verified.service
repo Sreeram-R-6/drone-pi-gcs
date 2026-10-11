@@ -1,0 +1,19 @@
+[Unit]
+Description=MAVProxy telemetry router (verified Pi UART)
+After=local-fs.target systemd-udev-trigger.service
+Before=drone-oled.service
+
+[Service]
+Type=simple
+User=drone-router
+SupplementaryGroups=dialout
+StateDirectory=drone-router
+WorkingDirectory=/var/lib/drone-router
+ExecStart=/opt/drone-oled/venv/bin/mavproxy.py --master=/dev/serial0 --baudrate=115200 --mavversion=2.0 --dialect=ardupilotmega --out=udp:127.0.0.1:14550 --out=udp:127.0.0.1:14552 --out=udp:127.0.0.1:14553 --source-system=252 --heartbeat-rate=0 --streamrate=-1 --default-modules=link,log,output --daemon
+Restart=always
+RestartSec=3
+TimeoutStopSec=5
+NoNewPrivileges=true
+
+[Install]
+WantedBy=multi-user.target

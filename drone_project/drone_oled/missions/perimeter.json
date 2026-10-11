@@ -1,0 +1,34 @@
+{
+  "name": "PERIMETER",
+  "display_only": true,
+  "steps": [
+    {
+      "name": "TAKEOFF",
+      "params": "ALT 12M"
+    },
+    {
+      "name": "CORNER 1",
+      "params": "ALT 12M SPD 4"
+    },
+    {
+      "name": "CORNER 2",
+      "params": "ALT 12M SPD 4"
+    },
+    {
+      "name": "CORNER 3",
+      "params": "ALT 12M SPD 4"
+    },
+    {
+      "name": "CORNER 4",
+      "params": "ALT 12M SPD 4"
+    },
+    {
+      "name": "RTL",
+      "params": "ALT 15M"
+    },
+    {
+      "name": "LAND",
+      "params": "-"
+    }
+  ]
+}

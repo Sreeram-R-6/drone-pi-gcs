@@ -1,0 +1,23 @@
+[Unit]
+Description=Drone OLED front panel
+After=local-fs.target systemd-udev-trigger.service
+Wants=mavproxy.service
+Before=multi-user.target
+
+[Service]
+Type=simple
+User=drone-oled
+SupplementaryGroups=i2c gpio
+StateDirectory=drone-oled
+RuntimeDirectory=drone-oled
+RuntimeDirectoryMode=0700
+WorkingDirectory=/var/lib/drone-oled
+Environment=GPIOZERO_PIN_FACTORY=lgpio
+ExecStart=/opt/drone-oled/venv/bin/drone-oled --config /etc/drone-oled/config.toml
+Restart=always
+RestartSec=1
+TimeoutStopSec=10
+NoNewPrivileges=true
+
+[Install]
+WantedBy=multi-user.target

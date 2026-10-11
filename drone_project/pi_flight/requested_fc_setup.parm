@@ -1,0 +1,8 @@
+# Operator-requested values, 2026-10-10. NOT applied or verified by this file.
+# Target: ArduCopter 4.7.1 / BlitzMiniF745 / hardware identity in config.toml.
+# Remove propellers and confirm disarmed before loading through MAVProxy.
+# Back up parameters first; read back each value and verify after FC restart.
+ARMING_SKIPCHK 0
+EK3_SRC1_POSXY 3
+WP_SPD_UP 0.3
+BATT_CAPACITY 5000

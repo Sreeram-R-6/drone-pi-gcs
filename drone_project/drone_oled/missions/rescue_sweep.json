@@ -1,0 +1,34 @@
+{
+  "name": "RESCUE SWEEP",
+  "display_only": true,
+  "steps": [
+    {
+      "name": "TAKEOFF",
+      "params": "ALT 20M"
+    },
+    {
+      "name": "SEARCH ZONE A",
+      "params": "ALT 20M SPD 5"
+    },
+    {
+      "name": "SEARCH ZONE B",
+      "params": "ALT 20M SPD 5"
+    },
+    {
+      "name": "THERMAL SCAN",
+      "params": "HOLD 10S"
+    },
+    {
+      "name": "LOCK TARGET",
+      "params": "HOVER 15S"
+    },
+    {
+      "name": "RTL",
+      "params": "ALT 25M"
+    },
+    {
+      "name": "LAND",
+      "params": "-"
+    }
+  ]
+}

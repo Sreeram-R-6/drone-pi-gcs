@@ -1,0 +1,7 @@
+# Python packages installed inside picode/.venv by setup_pi.sh.
+# ROS 2, MAVROS, OpenCV, NumPy, Pillow, and cv_bridge come from Ubuntu/ROS
+# apt packages so they remain ABI-compatible with ROS 2 Humble.
+MAVProxy==1.8.74
+pymavlink==2.4.49
+PyYAML==6.0.3
+pyquirc==0.2.0.post1

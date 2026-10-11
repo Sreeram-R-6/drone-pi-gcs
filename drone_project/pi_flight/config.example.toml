@@ -1,0 +1,141 @@
+# Confirmed physical choices, with deliberately unresolved safety thresholds.
+# No setting in this file alone authorizes flight. See README and firmware review.
+[link]
+device = "/dev/serial0" # Stable GPIO14/15 header-UART alias; resolves to ttyS0.
+device_confirmed = false
+pi_interface = "serial0_gpio14"
+gpio_tx = 14
+gpio_rx = 15
+baud = 115200
+endpoint = "/dev/serial0" # Direct UART default; do not run MAVProxy alongside GCS.
+system_id = 1 # Must match live identity; not yet verified.
+component_id = 1
+source_system = 254
+source_component = 191
+connect_timeout_s = 5.0
+max_age_s = 2.0
+
+[aircraft]
+board = "iFlight BLITZ Mini F745"
+firmware_target = "" # Populate from version-specific board evidence, not heartbeat.
+flight_sw_version = 0
+board_version = 0
+uid = 0
+initial_mode = "ALT_HOLD" # Proposed; must be reviewed and observed props-off.
+pi_fc_uart = 4
+flow_fc_uart = 5
+pi_serial_group = ""
+flow_serial_group = ""
+
+[mission]
+altitude_m = 2.0
+climb_m_s = 0.30
+hold_s = 10.0
+settle_s = 3.0 # Proposal: continuous time in altitude band with low vertical speed.
+altitude_tolerance_m = 0.20
+settle_vertical_speed_m_s = 0.15
+setpoint_hz = 5.0
+command_timeout_s = 5.0
+takeoff_timeout_s = 35.0
+disarm_timeout_s = 120.0
+# Proposed abort limits; require aircraft review before flight.
+max_altitude_m = 2.5
+max_radius_m = 2.0
+max_tilt_deg = 15.0
+max_horizontal_speed_m_s = 1.0
+max_vertical_speed_m_s = 0.60
+max_altitude_disagreement_m = 0.40
+
+[sampling]
+full_s = 30.0
+fast_s = 3.0
+heartbeat_hz = 0.7
+position_hz = 2.0
+sensor_hz = 2.0
+
+[gps]
+# Zero means UNREVIEWED, never a permissive threshold.
+min_satellites = 0
+max_hdop = 0.0
+max_rms_m = 0.0
+max_p95_m = 0.0
+max_radius_m = 0.0
+max_drift_m = 0.0
+max_speed_m_s = 0.0
+max_step_m = 0.0
+
+[flow]
+model = "MicoAir MTF-01 original"
+output = "mav-apm"
+orientation = "manufacturer ArduPilot/PX4 default, viewed from below"
+sensor_id = -1
+min_quality = 0 # Must be established for this sensor, surface, light, height.
+min_hz = 0.0
+max_gap_s = 0.0
+max_compensated_rad_s = 0.0
+max_compensated_m_s = 0.0
+max_integration_us = 0
+
+[range]
+sensor_id = -1
+nominal_min_m = 0.01
+nominal_max_m = 8.0
+usable_min_m = 0.0 # Pending measured outdoor envelope, including ground clearance.
+usable_max_m = 0.0
+max_covariance_cm2 = 0.0
+
+[battery]
+cells = 4
+capacity_mah = 5000
+min_voltage_v = 0.0 # Pending approval against calibrated telemetry and failsafes.
+max_voltage_v = 16.8
+min_remaining_pct = 0.0
+max_current_a = 0.0
+sensor_id = 0
+
+[attitude]
+max_stationary_tilt_deg = 0.0
+max_heading_span_deg = 0.0
+max_altitude_span_m = 0.0
+max_ekf_variance = 0.0
+
+[commissioning]
+clear_radius_m = 5.0
+required_clear_radius_m = 15.0
+manual_hover_reported = true
+manual_hover_log_reviewed = false
+flow_axes_range_calibration_reviewed = false
+rc_recovery_switch_tested = false
+wiring_props_off_verified = false
+uart_pinmux_verified = false
+failsafe_land_verified = false
+thresholds_approved = false
+firmware_behavior_reviewed = false
+report_path = "" # Required saved props-off/flight-log review report.
+recovery_modes = ["STABILIZE", "ALT_HOLD", "LOITER"]
+
+[firmware]
+# Deliberately unset until exact live firmware and its source are reviewed.
+prearm_command_supported = false
+climb_parameter = ""
+climb_parameter_units_per_m_s = 0.0
+climb_parameter_type = 0
+climb_parameter_min = 0.0
+climb_parameter_max = 0.0
+climb_change_approved = false
+review_source = ""
+takeoff_altitude_reference = "" # Verify exact firmware: relative_home or above_launch.
+
+[parameter_audit]
+# Add EVERY reviewed safety/source/serial/fence/landing parameter as an exact
+# expected value and type in a firmware-matched JSON profile (see README).
+profile_path = ""
+
+[gcs]
+# Proposed only. Set review booleans only after actual commissioning evidence.
+routes_reviewed = false
+rtl_reviewed = false
+speed_m_s = 0.30
+position_tolerance_m = 0.20
+arrival_speed_m_s = 0.15
+leg_timeout_s = 30.0

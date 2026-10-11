@@ -1,0 +1,33 @@
+# Tolerant read-only bench diagnostics. NOT approved flight limits.
+[gps]
+min_satellites = 5
+max_hdop = 4.0
+max_rms_m = 5.0
+max_p95_m = 7.0
+max_radius_m = 8.0
+max_drift_m = 8.0
+max_speed_m_s = 3.0
+max_step_m = 5.0
+[flow]
+sensor_id = 0
+min_quality = 30
+min_hz = 1.0
+max_gap_s = 3.0
+max_compensated_rad_s = 3.0
+max_compensated_m_s = 3.0
+max_integration_us = 500000
+[range]
+sensor_id = 0
+usable_min_m = 0.02
+usable_max_m = 7.0
+max_covariance_cm2 = 100.0
+[battery]
+min_voltage_v = 13.2
+max_voltage_v = 16.8
+min_remaining_pct = 10.0
+max_current_a = 80.0
+[attitude]
+max_stationary_tilt_deg = 10.0
+max_heading_span_deg = 20.0
+max_altitude_span_m = 1.0
+max_ekf_variance = 2.0

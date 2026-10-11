@@ -1,0 +1,218 @@
+============================================================
+ADDC RESCUE 7-INCH SIMULATION
+AIRFRAME SPECIFICATION
+============================================================
+
+SIMULATION PLATFORM
+-------------------
+Gazebo:
+Gazebo Harmonic
+
+Flight Controller:
+ArduCopter SITL
+
+Gazebo Interface:
+ArduPilot Gazebo JSON
+
+============================================================
+AIRCRAFT
+============================================================
+
+Vehicle:
+7-inch quadrotor
+
+Configuration:
+Quad-X
+
+Total AUW:
+1.500 kg
+
+Motor count:
+4
+
+Motor:
+2807
+
+Motor KV:
+1350 KV
+
+Propeller:
+7 x 4
+
+ESC:
+Zeus 50A 4-in-1
+
+Battery:
+4S LiPo
+
+Battery capacity:
+5000 mAh
+
+Battery mass:
+300 g
+
+Nominal battery voltage:
+14.8 V
+
+Fully charged voltage:
+16.8 V
+
+============================================================
+FRAME GEOMETRY
+============================================================
+
+Initial motor-to-motor diagonal:
+0.320 m
+
+IMPORTANT:
+This is an initial simulation assumption.
+Replace with measured physical-frame dimension
+when the real frame is measured.
+
+Motor coordinate magnitude:
+0.113137 m
+
+Motor positions:
+
+Rotor 0:
+X = +0.113137 m
+Y = -0.113137 m
+
+Rotor 1:
+X = -0.113137 m
+Y = +0.113137 m
+
+Rotor 2:
+X = +0.113137 m
+Y = +0.113137 m
+
+Rotor 3:
+X = -0.113137 m
+Y = -0.113137 m
+
+============================================================
+SENSORS
+============================================================
+
+IMU:
+ICM42688-equivalent simulated IMU
+
+Barometer:
+DPS310-equivalent simulated barometer
+
+GPS:
+BZ251-equivalent simulated GNSS
+
+Compass:
+QMC5883 external compass
+
+Front camera:
+NO
+
+Downward camera:
+YES
+
+============================================================
+CAMERA
+============================================================
+
+Resolution:
+640 x 480
+
+Update rate:
+20 Hz
+
+Horizontal FOV:
+90 degrees
+
+============================================================
+ROS INTERFACE
+============================================================
+
+Downward camera image:
+/camera/down/image
+
+Downward camera information:
+/camera/down/camera_info
+
+QR detection:
+/rescue/qr_detected
+
+============================================================
+FLIGHT CONTROL
+============================================================
+
+Autopilot:
+ArduCopter SITL
+
+Gazebo interface:
+ArduPilot Gazebo JSON
+
+============================================================
+HOVER SANITY CHECK
+============================================================
+
+Vehicle mass:
+1.500 kg
+
+Gravity:
+9.81 m/s^2
+
+Weight:
+14.715 N
+
+Ideal hover thrust per motor:
+3.67875 N
+
+NOTE:
+This is a hover sanity-check target.
+It is NOT a manufacturer thrust curve.
+
+============================================================
+WIND TEST LEVELS
+============================================================
+
+CALM:
+0 m/s
+
+MODERATE:
+5 m/s
+
+STRONG:
+10 m/s
+
+Gusts:
+Added only after baseline flight works.
+
+============================================================
+MISSION
+============================================================
+
+GUIDED autonomous mission
+
+Search
+Geotag
+QR detection
+QR confirmation
+UDP transmission
+RTL
+
+============================================================
+ENGINEERING RULES
+============================================================
+
+Do not modify the Iris reference model.
+
+Do not modify the Iris reference world.
+
+Do not use PX4.
+
+Do not use the legacy khancyr plugin.
+
+Do not invent manufacturer thrust curves.
+
+Do not tune wind before hover works.
+
+Do not tune autonomous mission before standalone flight works.
+
+============================================================

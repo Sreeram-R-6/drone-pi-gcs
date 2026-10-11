@@ -1,0 +1,22 @@
+{
+  "name": "RTL TEST",
+  "display_only": true,
+  "steps": [
+    {
+      "name": "TAKEOFF",
+      "params": "ALT 10M"
+    },
+    {
+      "name": "FLY OUT",
+      "params": "DIST 50M SPD 4"
+    },
+    {
+      "name": "TRIGGER RTL",
+      "params": "ALT 15M"
+    },
+    {
+      "name": "LAND",
+      "params": "-"
+    }
+  ]
+}

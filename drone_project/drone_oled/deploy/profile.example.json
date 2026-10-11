@@ -1,0 +1,14 @@
+{
+  "approved": false,
+  "flight_sw_version": 67568127,
+  "board_version": 76218368,
+  "uid2": "REPLACE_WITH_LIVE_18_BYTE_UID2_HEX",
+  "min_voltage_v": 0,
+  "max_ekf_variance": 0,
+  "motor_positions": [],
+  "arming_mode": "GUIDED",
+  "recovery_reviewed": false,
+  "calibrations": [],
+  "failsafe_texts": {},
+  "parameters": {}
+}

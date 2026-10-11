@@ -1,0 +1,13 @@
+# TBS Source One V5 7-inch / ArduCopter simulation parameters
+# Physical target: 4S 5000 mAh, 1.5 kg AUW. Battery mass is included in AUW.
+BATT_CAPACITY,5000
+BATT_VOLT_MULT,1.0
+BATT_AMP_PERVLT,1.0
+FRAME_CLASS,1
+FRAME_TYPE,1
+AHRS_EKF_TYPE,3
+EK2_ENABLE,0
+EK3_ENABLE,1
+GPS_TYPE,1
+COMPASS_ENABLE,1
+INS_GYR_RATE,1

@@ -1,0 +1,2 @@
+# Run pip from repository root, preferably through scripts/setup_pi.sh.
+-r drone_project/pi_flight/requirements.lock.txt

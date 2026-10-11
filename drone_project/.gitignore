@@ -1,0 +1,20 @@
+# ROS 2 and Python generated artifacts
+ros2_ws/build/
+ros2_ws/install/
+ros2_ws/log/
+**/__pycache__/
+*.py[cod]
+*.so
+
+# Local/editor/system files
+.venv/
+venv/
+.env
+*.swp
+*~
+*.backup-*
+*.kitty-session
+.DS_Store
+
+# Local GitHub/CLI and machine-specific metadata
+.github_token

@@ -1,0 +1,90 @@
+<?xml version="1.0"?>
+<sdf version="1.9">
+  <world name="rescue_7inch_disaster">
+    <physics name="1ms" type="ignored">
+      <max_step_size>0.001</max_step_size>
+      <real_time_factor>1.0</real_time_factor>
+    </physics>
+
+    <plugin filename="gz-sim-physics-system" name="gz::sim::systems::Physics"/>
+    <plugin filename="gz-sim-sensors-system" name="gz::sim::systems::Sensors">
+      <render_engine>ogre2</render_engine>
+    </plugin>
+    <plugin filename="gz-sim-scene-broadcaster-system" name="gz::sim::systems::SceneBroadcaster"/>
+    <plugin filename="gz-sim-user-commands-system" name="gz::sim::systems::UserCommands"/>
+    <plugin filename="gz-sim-imu-system" name="gz::sim::systems::Imu"/>
+    <plugin filename="gz-sim-navsat-system" name="gz::sim::systems::NavSat"/>
+    <plugin filename="gz-sim-air-pressure-system" name="gz::sim::systems::AirPressure"/>
+    <plugin filename="gz-sim-magnetometer-system" name="gz::sim::systems::Magnetometer"/>
+
+    <scene>
+      <ambient>0.65 0.65 0.65</ambient>
+      <background>0.25 0.30 0.35</background>
+      <sky/>
+    </scene>
+    <spherical_coordinates>
+      <latitude_deg>-35.363262</latitude_deg>
+      <longitude_deg>149.165237</longitude_deg>
+      <elevation>584</elevation>
+      <heading_deg>0</heading_deg>
+      <surface_model>EARTH_WGS84</surface_model>
+    </spherical_coordinates>
+    <light type="directional" name="sun">
+      <cast_shadows>true</cast_shadows>
+      <pose>0 0 20 0 0 0</pose>
+      <diffuse>0.8 0.8 0.8 1</diffuse>
+      <specular>0.2 0.2 0.2 1</specular>
+      <direction>-0.4 0.2 -0.9</direction>
+    </light>
+
+    <!-- Controlled first-pass disaster terrain. The ground and obstacles are
+         intentionally primitive so flight dynamics remain debuggable. -->
+    <model name="disaster_ground">
+      <static>true</static>
+      <link name="ground_link">
+        <collision name="ground_collision"><geometry><box><size>40 30 0.2</size></box></geometry></collision>
+        <visual name="ground_visual"><geometry><box><size>40 30 0.2</size></box></geometry>
+          <material><diffuse>0.30 0.28 0.24 1</diffuse></material>
+        </visual>
+      </link>
+    </model>
+    <model name="uneven_terrain_ramp">
+      <static>true</static><pose>7 3 0.6 0 0.12 0</pose>
+      <link name="ramp_link"><collision name="collision"><geometry><box><size>8 6 1.2</size></box></geometry></collision>
+        <visual name="visual"><geometry><box><size>8 6 1.2</size></box></geometry><material><diffuse>0.38 0.35 0.30 1</diffuse></material></visual>
+      </link>
+    </model>
+    <model name="damaged_structure">
+      <static>true</static><pose>8 -5 1.5 0 0 0.2</pose>
+      <link name="structure_link"><collision name="collision"><geometry><box><size>5 4 3</size></box></geometry></collision>
+        <visual name="visual"><geometry><box><size>5 4 3</size></box></geometry><material><diffuse>0.20 0.22 0.24 1</diffuse></material></visual>
+      </link>
+    </model>
+    <model name="debris_a"><static>true</static><pose>3 -2 0.35 0.1 0.2 0.3</pose><link name="link"><collision name="c"><geometry><box><size>1.6 0.8 0.7</size></box></geometry></collision><visual name="v"><geometry><box><size>1.6 0.8 0.7</size></box></geometry><material><diffuse>0.12 0.14 0.15 1</diffuse></material></visual></link></model>
+    <model name="debris_b"><static>true</static><pose>-4 4 0.25 0.2 0 0.8</pose><link name="link"><collision name="c"><geometry><box><size>1.0 1.0 0.5</size></box></geometry></collision><visual name="v"><geometry><box><size>1.0 1.0 0.5</size></box></geometry><material><diffuse>0.45 0.38 0.25 1</diffuse></material></visual></link></model>
+
+    <include><uri>model://rescue_7inch</uri><name>rescue_7inch</name><pose>0 0 1 0 0 0</pose></include>
+    <include><uri>model://rescue_7inch_qr_target</uri><name>rescue_target</name><pose>2 10 0.02 0 0 0</pose></include>
+
+    <!-- Initial calm profile. Change only this block for later wind tests. -->
+    <wind>
+      <linear_velocity>0 0 0</linear_velocity>
+    </wind>
+    <plugin filename="gz-sim-wind-effects-system" name="gz::sim::systems::WindEffects">
+      <force_approximation_scaling_factor>1</force_approximation_scaling_factor>
+      <horizontal>
+        <magnitude>
+          <time_for_rise>10</time_for_rise>
+          <sin><amplitude_percent>0.05</amplitude_percent><period>60</period></sin>
+          <noise type="gaussian"><mean>0</mean><stddev>0.2</stddev></noise>
+        </magnitude>
+        <direction>
+          <time_for_rise>30</time_for_rise>
+          <sin><amplitude>0.3</amplitude><period>20</period></sin>
+          <noise type="gaussian"><mean>0</mean><stddev>0.03</stddev></noise>
+        </direction>
+      </horizontal>
+      <vertical><noise type="gaussian"><mean>0</mean><stddev>0.03</stddev></noise></vertical>
+    </plugin>
+  </world>
+</sdf>

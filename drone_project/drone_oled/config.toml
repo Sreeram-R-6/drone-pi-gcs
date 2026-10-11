@@ -1,0 +1,73 @@
+[display]
+driver = "ssd1306"
+bus = 1
+address = 0x3C
+rotation = 0
+i2c_hz = 400000
+max_fps = 10
+contrast = 128
+always_on = true
+dim_after_s = 0
+blank_after_s = 0
+boot_escape_s = 45
+
+[buttons]
+up = 26
+down = 21
+left = 20
+right = 16
+back = 19
+ok = 13
+pull_up = true
+debounce_ms = 25
+released_before_enable_ms = 100
+long_press_ms = 800
+repeat_delay_ms = 400
+repeat_hz = 8
+transition_guard_ms = 150
+
+[mavlink]
+endpoint = "udpin:127.0.0.1:14553"
+source_system = 253
+source_component = 191
+target_system = 1
+target_component = 1
+stale_s = 2.0
+heartbeat_lost_s = 3.0
+ack_timeout_s = 3.0
+state_timeout_s = 5.0
+
+[safety]
+commands_enabled = false
+arm_enabled = false
+mission_enabled = false
+motor_test_enabled = false
+calibration_enabled = false
+parameter_write_enabled = false
+firmware_profile = ""
+abort_mode = "RTL"
+abort_fallback = "LAND"
+
+[missions]
+directory = "missions"
+countdown_s = 10
+max_display_steps = 99
+transfer_timeout_s = 2.0
+transfer_attempts = 3
+transfer_total_s = 60.0
+
+[battery]
+id = 0
+verified_cell_count = 0
+
+[pi]
+wifi_interface = "wlan0"
+ethernet_interface = "eth0"
+sample_hz = 1
+stale_s = 3.0
+command_timeout_s = 1.0
+
+[logging]
+directory = ""
+max_bytes = 5242880
+backup_count = 3

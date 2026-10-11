@@ -1,0 +1,43 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "drone-oled"
+version = "0.1.0"
+description = "SSD1306 drone front panel with fail-closed MAVLink controls"
+requires-python = ">=3.10"
+dependencies = ["Pillow>=9", "pymavlink==2.4.49", "tomli>=2; python_version<'3.11'"]
+
+[project.optional-dependencies]
+pi = ["luma.oled>=3.13", "gpiozero>=2", "lgpio>=0.2"]
+router = ["MAVProxy==1.8.74", "future"]
+dev = ["pytest>=7", "ruff>=0.8", "mypy>=1.10", "types-Pillow"]
+
+[project.scripts]
+drone-oled = "drone_oled.app:main"
+drone-oled-router = "drone_oled.router:main"
+drone-oled-web = "drone_oled.web:main"
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.setuptools.package-data]
+drone_oled = ["assets/*.png", "assets/*.jpg"]
+
+[tool.pytest.ini_options]
+pythonpath = ["src"]
+testpaths = ["tests"]
+
+[tool.ruff]
+line-length = 100
+target-version = "py310"
+
+[tool.ruff.lint]
+select = ["E4", "E7", "E9", "F", "B"]
+
+[tool.mypy]
+python_version = "3.10"
+check_untyped_defs = true
+ignore_missing_imports = true
+

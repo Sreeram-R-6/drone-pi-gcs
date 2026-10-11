@@ -1,0 +1,4 @@
+# Change only after props-off UART/pinmux inspection on the actual Pi.
+device = "/dev/serial0"
+hardware_confirmed = false
+working_directory = "/var/lib/drone-router"

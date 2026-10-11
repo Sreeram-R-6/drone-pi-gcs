@@ -1,0 +1,34 @@
+{
+  "name": "SURVEY A",
+  "display_only": true,
+  "steps": [
+    {
+      "name": "TAKEOFF",
+      "params": "ALT 15M"
+    },
+    {
+      "name": "GOTO WP1",
+      "params": "ALT 15M SPD 4"
+    },
+    {
+      "name": "GOTO WP2",
+      "params": "ALT 15M SPD 4"
+    },
+    {
+      "name": "GOTO WP3",
+      "params": "ALT 15M SPD 4"
+    },
+    {
+      "name": "SCAN GRID",
+      "params": "LANE 40M SPD 3"
+    },
+    {
+      "name": "RTL",
+      "params": "ALT 20M"
+    },
+    {
+      "name": "LAND",
+      "params": "SPD 0.5M/S"
+    }
+  ]
+}
