@@ -15,7 +15,8 @@ ROOT = Path(__file__).resolve().parents[1]
 
 
 def test_font_authoritative():
-    assert len(FONT) == 59
+    assert set(FONT) == {chr(i) for i in range(32, 91)} | {"_"}
+    assert FONT["_"] == bytes([0x40] * 5)
     assert FONT["A"] == bytes.fromhex("7E1111117E")
     assert width("ARMED", 3) == 87 and width("10", 5) == 55
     assert fit("X" * 21, 128) and not fit("X" * 22, 128)

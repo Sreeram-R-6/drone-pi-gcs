@@ -111,6 +111,7 @@ uart_pinmux_verified = false
 failsafe_land_verified = false
 thresholds_approved = false
 firmware_behavior_reviewed = false
+onboard_auto_reviewed = false
 report_path = "" # Required saved props-off/flight-log review report.
 recovery_modes = ["STABILIZE", "ALT_HOLD", "LOITER"]
 
@@ -132,6 +133,7 @@ takeoff_altitude_reference = "" # Verify exact firmware: relative_home or above_
 profile_path = ""
 
 [gcs]
+execution_backend = "guided" # Select onboard_auto only with matching onboard_auto_v1 policy and commissioning.
 # Proposed only. Set review booleans only after actual commissioning evidence.
 routes_reviewed = false
 rtl_reviewed = false

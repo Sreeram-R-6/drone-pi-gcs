@@ -1,0 +1,184 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>Video recordings</title>
+  <style>
+    :root{color-scheme:dark;font-family:Inter,system-ui,sans-serif;background:#0d121b;color:#e8edf5}
+    *{box-sizing:border-box}body{margin:0}main{max-width:1240px;margin:auto;padding:42px 28px}
+    header{display:flex;align-items:center;justify-content:space-between;gap:20px;margin-bottom:34px}
+    .eyebrow{font-size:11px;letter-spacing:.18em;color:#79d9bd;font-weight:700;text-transform:uppercase}
+    .back{display:inline-block;color:#79d9bd;font-size:13px;text-decoration:none;margin-bottom:24px}.delete{background:#532a32;border-color:#925063}.actions{flex-wrap:wrap}
+    h1{font-size:32px;letter-spacing:-1px;margin:8px 0}p{color:#9caac0;font-size:14px;line-height:1.6;margin:6px 0}
+    button,.download{border:1px solid #354359;border-radius:9px;padding:10px 16px;background:#1a2638;color:#e8edf5;font:inherit;font-size:13px;cursor:pointer;text-decoration:none}
+    button:hover,.download:hover{background:#27394f}button:focus-visible,a:focus-visible{outline:2px solid #79d9bd;outline-offset:4px}
+    button:disabled{opacity:.45;cursor:default}.record-panel{border:1px solid #273347;background:#131c29;border-radius:14px;padding:20px;margin-bottom:24px;display:flex;align-items:center;justify-content:space-between;gap:20px}.record-panel h2{font-size:16px;margin:0 0 6px}.record-panel p{font-size:13px}.record-controls{display:flex;gap:10px;flex:none}.record-start{background:#234c40;border-color:#3a7b66}.record-stop{background:#532a32;border-color:#925063}#record-status{color:#79d9bd;overflow-wrap:anywhere}.tabs{display:flex;gap:8px;margin-bottom:18px}.tabs button[aria-pressed=true]{border-color:#79d9bd;color:#79d9bd}.live-dot{display:inline-block;width:8px;height:8px;border-radius:50%;background:#f57d86;margin-right:6px}
+    .layout{display:grid;grid-template-columns:minmax(0,1fr) 330px;gap:24px}
+    .player{background:#131c29;border:1px solid #273347;border-radius:16px;overflow:hidden;align-self:start}
+    .screen{position:relative;aspect-ratio:16/9;background:#060a10;display:grid;place-items:center}
+    video{width:100%;height:100%;position:absolute;inset:0;display:none}.placeholder{text-align:center;padding:24px}
+    .play-symbol{font-size:40px;color:#79d9bd;margin-bottom:10px}.details{padding:22px}.details h2{font-size:16px;margin:0 0 10px;overflow-wrap:anywhere}
+    .actions{margin-top:18px;display:flex;align-items:center;gap:14px}.badge{font-size:11px;letter-spacing:.08em;border:1px solid #304239;color:#79d9bd;border-radius:30px;padding:6px 10px}
+    .list-header{display:flex;align-items:center;justify-content:space-between;margin:0 0 14px;font-size:13px;color:#aab8cc}.list{display:grid;gap:10px;max-height:65vh;overflow:auto;padding:3px}
+    .card{width:100%;display:flex;text-align:left;align-items:center;gap:13px;padding:14px;background:#131c29;border-color:#273347}
+    .card[aria-pressed=true]{border-color:#79d9bd;background:#1b302e}.icon{color:#79d9bd;background:#22352f;display:grid;place-items:center;border-radius:8px;width:40px;height:40px;flex:none}
+    .filename{display:block;font-size:12px;overflow-wrap:anywhere;line-height:1.5}.meta{display:block;font-size:11px;color:#92a2b8;margin-top:5px}
+    .empty{padding:25px;border:1px dashed #354359;border-radius:12px;text-align:center;color:#9caac0;font-size:13px;line-height:1.7}
+    #status{min-height:22px;margin-top:18px;font-size:13px;color:#9caac0}footer{margin-top:28px;color:#697b94;font-size:12px}
+    @media(max-width:850px){.layout{grid-template-columns:1fr}.list{max-height:none}main{padding:26px 16px}h1{font-size:26px}header{align-items:flex-start}.record-panel{align-items:flex-start;flex-direction:column}}
+  </style>
+</head>
+<body>
+<main>
+  <a class="back" id="back-dashboard" href="#">← Back to dashboard</a>
+  <header><div><div class="eyebrow">Drone / media library</div><h1>Video recordings</h1><p>Replay your flights or capture a separate camera clip.</p></div><button id="refresh">↻ Refresh</button></header>
+  <section class="record-panel" aria-label="Manual camera recording"><div><h2>Manual recording</h2><p>USB camera · Separate from flight recordings</p><p id="record-status" role="status" aria-live="polite">Checking camera recording…</p></div><div class="record-controls"><button class="record-start" id="start-record" disabled>● Start recording</button><button class="record-stop" id="stop-record" disabled>■ Stop recording</button></div></section>
+  <div class="tabs" role="group" aria-label="Recording library"><button id="flight-tab" aria-pressed="true">Flight recordings</button><button id="manual-tab" aria-pressed="false">Manual clips</button></div>
+  <div class="layout">
+    <section class="player" aria-label="Video player">
+      <div class="screen"><div class="placeholder" id="placeholder"><div class="play-symbol">▷</div><p>Select a recording to watch</p></div><video id="player" controls playsinline preload="metadata"></video></div>
+      <div class="details"><h2 id="title">Your flight footage</h2><p id="info">Choose a video from the library.</p><div class="actions"><a class="download" id="download" hidden>Download original</a><button class="delete" id="delete-clip" hidden>Delete clip</button><span class="badge">LOCAL LIBRARY</span></div><div id="status" role="status" aria-live="polite"></div></div>
+    </section>
+    <aside aria-label="Recording library"><div class="list-header"><span>RECORDINGS</span><span id="count">0 videos</span></div><div class="list" id="list"></div></aside>
+  </div>
+  <footer>Flight recordings: video/ · Manual clips: video/manual/ · Library refreshes every 15 seconds</footer>
+</main>
+<script>
+  const $ = id => document.getElementById(id);
+  const dashboardURL = new URL(window.location.href);
+  dashboardURL.port = '8070'; dashboardURL.pathname = '/'; dashboardURL.search = ''; dashboardURL.hash = '';
+  $('back-dashboard').href = dashboardURL.href;
+  let selected = null, request = 0, library = 'flight', libraryRequest = 0;
+  let recordingState = 'unknown', recordBusy = false, recordingError = '';
+  let selectedVideo = null, deleteBusy = false;
+  const recordingToken = '__RECORDING_TOKEN__';
+  const bytes = size => size < 1048576 ? (size/1024).toFixed(0)+' KB' : (size/1048576).toFixed(1)+' MB';
+  const date = timestamp => new Date(timestamp*1000).toLocaleString([], {month:'short',day:'numeric',hour:'2-digit',minute:'2-digit'});
+  async function json(url) {
+    const response = await fetch(url, {cache:'no-store'});
+    const data = await response.json();
+    if (!response.ok) throw new Error(data.error || 'Unable to load video library.');
+    return data;
+  }
+  function markSelected() {
+    for (const card of $('list').children) card.setAttribute('aria-pressed', String(library+'/'+card.dataset.name === selected));
+  }
+  async function select(video) {
+    if (deleteBusy) return;
+    const current = ++request;
+    selected = video.library+'/'+video.name;
+    selectedVideo = video;
+    markSelected();
+    $('title').textContent = video.name;
+    $('info').textContent = date(video.modified)+' · '+bytes(video.size)+' · '+video.name.split('.').pop().toUpperCase();
+    $('download').href = video.download;
+    $('download').hidden = false;
+    $('delete-clip').hidden = false;
+    $('player').pause();
+    $('player').removeAttribute('src');
+    $('player').load();
+    $('player').style.display = 'none';
+    $('placeholder').hidden = false;
+    $('status').textContent = 'Preparing playback…';
+    try {
+      const data = await json('/api/play?'+new URLSearchParams({name:video.name,library:video.library}));
+      if (current !== request) return;
+      $('player').src = data.url;
+      $('player').style.display = 'block';
+      $('placeholder').hidden = true;
+      $('status').textContent = 'Ready to play';
+    } catch (error) { if (current === request) $('status').textContent = error.message; }
+  }
+  async function refresh() {
+    const currentLibrary = library, current = ++libraryRequest;
+    $('refresh').disabled = true;
+    try {
+      const {videos} = await json('/api/videos?'+new URLSearchParams({library:currentLibrary}));
+      if (current !== libraryRequest) return;
+      $('count').textContent = videos.length+' video'+(videos.length===1?'':'s');
+      $('list').replaceChildren();
+      for (const video of videos) {
+        const card = document.createElement('button');
+        card.className = 'card'; card.dataset.name = video.name;
+        const icon = document.createElement('span'); icon.className = 'icon'; icon.textContent = '▷'; icon.setAttribute('aria-hidden','true');
+        const copy = document.createElement('span');
+        const name = document.createElement('span'); name.className = 'filename'; name.textContent = video.name;
+        const meta = document.createElement('span'); meta.className = 'meta'; meta.textContent = date(video.modified)+' · '+bytes(video.size);
+        copy.append(name,meta); card.append(icon,copy); card.onclick = () => select({...video,library:currentLibrary});
+        $('list').append(card);
+      }
+      if (!videos.length) {
+        const empty = document.createElement('div'); empty.className = 'empty';
+        empty.textContent = currentLibrary === 'manual' ? 'No manual clips yet. Press Start recording, then Stop recording to save your first clip.' : 'No flight recordings yet. Videos from the flight script will appear here automatically.';
+        $('list').append(empty);
+      }
+      markSelected();
+    } catch(error) { $('status').textContent = error.message; }
+    finally { if (current === libraryRequest) $('refresh').disabled = false; }
+  }
+  function setLibrary(value) {
+    library=value;
+    $('flight-tab').setAttribute('aria-pressed',String(value==='flight'));
+    $('manual-tab').setAttribute('aria-pressed',String(value==='manual'));
+    refresh();
+  }
+  async function deleteClip() {
+    if (!selectedVideo || deleteBusy) return;
+    const video = selectedVideo;
+    if (!window.confirm('Permanently delete "'+video.name+'" from '+(video.library==='manual'?'Manual clips':'Flight recordings')+'? This cannot be undone.')) return;
+    deleteBusy=true; $('delete-clip').disabled=true;
+    $('status').textContent='Deleting clip…';
+    try {
+      const response=await fetch('/api/videos/delete',{method:'POST',headers:{'Content-Type':'application/json','X-Recording-Token':recordingToken},body:JSON.stringify({name:video.name,library:video.library})});
+      const data=await response.json();
+      if(!response.ok)throw Error(data.error||'Unable to delete clip.');
+      ++request; selected=null; selectedVideo=null;
+      $('player').pause(); $('player').removeAttribute('src'); $('player').load();
+      $('player').style.display='none'; $('placeholder').hidden=false;
+      $('download').hidden=true; $('delete-clip').hidden=true;
+      $('title').textContent='Select a recording'; $('info').textContent='Choose another video from the library.';
+      $('status').textContent='Clip deleted.';
+      await refresh();
+    }catch(error){$('status').textContent=error.message}
+    finally{deleteBusy=false;$('delete-clip').disabled=false}
+  }
+  $('delete-clip').onclick=deleteClip;
+  function updateRecording(data) {
+    const previous = recordingState;
+    recordingState = data.state;
+    $('start-record').disabled = recordBusy || !data.camera_available || ['starting','recording','stopping'].includes(data.state);
+    $('stop-record').disabled = recordBusy || data.state !== 'recording';
+    const elapsed = `${Math.floor(data.elapsed_seconds/60)}:${String(data.elapsed_seconds%60).padStart(2,'0')}`;
+    const messages = {idle:!data.camera_available?'USB camera not found at '+data.camera+'. Connect the camera to record.':data.name?'Saved: '+data.name:'Ready to record',starting:'Starting USB camera…',recording:'Recording · '+elapsed,stopping:'Stopping and saving clip…',error:data.error||'Recording failed.'};
+    $('record-status').textContent = recordingError || messages[data.state] || 'Checking camera…';
+    if (previous==='stopping' && data.state==='idle') setLibrary('manual');
+  }
+  async function pollRecording() {
+    if (recordBusy) return;
+    try { updateRecording(await json('/api/recording')); }
+    catch(error) { $('record-status').textContent=error.message; }
+  }
+  async function recordingAction(action) {
+    if (recordBusy) return;
+    recordBusy=true; recordingError='';
+    $('start-record').disabled=true; $('stop-record').disabled=true;
+    $('record-status').textContent=action==='start'?'Starting USB camera…':'Stopping and saving clip…';
+    try {
+      const response = await fetch('/api/recording/'+action,{method:'POST',headers:{'X-Recording-Token':recordingToken}});
+      const data = await response.json();
+      if (!response.ok) throw Error(data.error||'Recording request failed.');
+      updateRecording(data);
+    } catch(error) { recordingError=error.message; }
+    finally { recordBusy=false; pollRecording(); }
+  }
+  $('flight-tab').onclick=()=>setLibrary('flight');
+  $('manual-tab').onclick=()=>setLibrary('manual');
+  $('start-record').onclick=()=>recordingAction('start');
+  $('stop-record').onclick=()=>recordingAction('stop');
+  $('player').addEventListener('error', () => { if ($('player').hasAttribute('src')) $('status').textContent = 'Playback unavailable. Try downloading the original video.'; });
+  $('refresh').onclick = refresh;
+  refresh(); pollRecording(); setInterval(refresh,15000); setInterval(pollRecording,1500);
+</script>
+</body>
+</html>

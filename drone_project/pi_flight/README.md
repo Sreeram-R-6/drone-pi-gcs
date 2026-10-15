@@ -1,5 +1,11 @@
 # Pi / real flight-controller bring-up
 
+Local mission execution selects **GUIDED**, using Pi-issued movement commands.
+The Pi/link must remain available for mission execution. The optional onboard
+AUTO backend is inactive and still commissioning-locked. See
+[MISSION_SETUP_PENDING.md](MISSION_SETUP_PENDING.md) for GUIDED policy/readbacks;
+software tests do not constitute a physical-flight release.
+
 The new [terminal GCS and flight timeline](FLIGHT_TIMELINE.md) provides mission
 selection, a reviewed 5-second hold, small heading-relative routes, telemetry,
 required-check pages, home map, ground-only DISARM and gated RTL. Preview with

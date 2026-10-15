@@ -1,0 +1,22 @@
+[Unit]
+Description=Pi terminal and MAVProxy browser console
+After=network.target ssh.service mavproxy.service drone-mavlink-hub.service
+Wants=ssh.service drone-mavlink-hub.service
+StartLimitIntervalSec=0
+
+[Service]
+Type=simple
+User=@USER@
+WorkingDirectory=@ROOT@
+ExecStart=/usr/bin/python3 -B "@ROOT@/scripts/pi_terminal.py"
+Restart=always
+RestartSec=3
+NoNewPrivileges=true
+ProtectSystem=strict
+ProtectHome=read-only
+ReadWritePaths="@ROOT@/video" /tmp
+RestrictAddressFamilies=AF_INET AF_INET6 AF_UNIX
+UMask=0077
+
+[Install]
+WantedBy=multi-user.target

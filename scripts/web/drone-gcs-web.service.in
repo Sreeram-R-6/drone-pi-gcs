@@ -1,0 +1,24 @@
+[Unit]
+Description=Drone browser ground control station
+After=network.target mavproxy.service
+
+StartLimitIntervalSec=0
+
+[Service]
+Type=simple
+User=@USER@
+WorkingDirectory=@ROOT@/drone_project/pi_flight
+ExecStart="@ROOT@/drone_project/pi_flight/.venv/bin/python" -B "@ROOT@/scripts/gcs_web.py"
+Restart=always
+RestartSec=5
+NoNewPrivileges=true
+ProtectSystem=strict
+ProtectHome=read-only
+ReadWritePaths="@ROOT@/drone_project/pi_flight/logs" "@ROOT@/drone_project/pi_flight/fc_logs"
+# Keep the shared per-user controller locks visible to terminal GCS too.
+ReadWritePaths=/tmp
+RestrictAddressFamilies=AF_INET AF_UNIX
+UMask=0077
+
+[Install]
+WantedBy=multi-user.target

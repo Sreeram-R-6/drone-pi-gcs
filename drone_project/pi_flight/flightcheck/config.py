@@ -10,10 +10,16 @@ def load(path):
         import tomli as tomllib
     with open(path, "rb") as stream:
         config = tomllib.load(stream)
+    backend = config.get('gcs', {}).get('execution_backend', 'guided')
+    if backend not in ('guided', 'onboard_auto'):
+        raise ValueError('Unknown mission execution backend')
+    onboard_policy = config.get('firmware', {}).get('mission_policy') == 'onboard_auto_v1'
+    if (backend == 'onboard_auto') != onboard_policy:
+        raise ValueError('Onboard AUTO backend and onboard_auto_v1 policy must be selected together')
     endpoint = config["link"]["endpoint"]
     direct_uart = endpoint == config["link"]["device"] and endpoint.startswith("/dev/")
-    if not direct_uart and endpoint != "udpin:127.0.0.1:14550":
-        raise ValueError("Endpoint must be the configured UART device or loopback UDP 14550")
+    if not direct_uart and endpoint not in {"udpin:127.0.0.1:14550", "tcp:127.0.0.1:5760"}:
+        raise ValueError("Endpoint must be the configured UART device or loopback TCP 5760 / UDP 14550")
     if config["link"]["baud"] != 115200:
         raise ValueError("This deployment requires 115200 baud")
     if config["mission"]["altitude_m"] != 2 or config["mission"]["hold_s"] != 10:

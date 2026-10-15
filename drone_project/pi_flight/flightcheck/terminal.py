@@ -84,6 +84,9 @@ class Terminal:
         except curses.error:
             pass
 
+    def flush_input(self):
+        curses.flushinp()
+
     def color(self, name):
         return self.colors.get(name, 0)
 
@@ -203,7 +206,9 @@ class Terminal:
             elif key in (ord('q'),27):
                 if self.mission:
                     self.mission.cancel_requested = True
-                    self.notice = 'Cancel requested; controller recovery/landing follows'
+                    self.notice = ('Stop monitoring requested; onboard mission may continue. Use RC.'
+                        if getattr(self.mission, 'started', False) else
+                        'Cancel requested; controller recovery/landing follows')
                 else:
                     self.quit_requested = True
             elif key == ord('c'):
@@ -227,7 +232,7 @@ class Terminal:
     def input_live(self, prompt, transport, guard=None):
         from .startup import confirmation_mode, check_confirmation_state
         expected_mode = confirmation_mode(transport) if guard is None else None
-        curses.flushinp()
+        self.flush_input()
         self.show_issues = False # Never obscure a newly requested confirmation.
         self.prompt,self.answer,self.submitted = prompt,'',None
         try:
@@ -241,7 +246,7 @@ class Terminal:
             return self.submitted
         finally:
             self.prompt = None
-            curses.flushinp()
+            self.flush_input()
 
     def small(self):
         h,w = self.screen.getmaxyx()
@@ -282,7 +287,7 @@ class Terminal:
                 transport.observer = observer
 
     def _choose(self, transport=None):
-        curses.flushinp()
+        self.flush_input()
         names = list(ROUTES)
         index = names.index(self.route)
         while True:
@@ -315,7 +320,7 @@ class Terminal:
             elif key == curses.KEY_DOWN:
                 index = (index+1) % len(names)
             elif key in (10,13,curses.KEY_ENTER):
-                curses.flushinp()
+                self.flush_input()
                 return True
             elif key in (ord('q'),27):
                 return False

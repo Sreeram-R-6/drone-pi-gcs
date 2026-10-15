@@ -55,7 +55,7 @@ def arm_control(config, ui):
             t.connect(config['link']['connect_timeout_s'])
             t.request_monitor_telemetry()
             ui.workflow_status = ''
-            curses.flushinp()
+            getattr(ui, 'flush_input', curses.flushinp)()
             ready_after = time.monotonic()+.5
             while True:
                 t.pump()
@@ -87,7 +87,7 @@ def arm_control(config, ui):
                         report.event('manual_toggle_blocked', error=str(exc))
                     finally:
                         ui.manual_action = None
-                        curses.flushinp()
+                        getattr(ui, 'flush_input', curses.flushinp)()
                         ready_after = time.monotonic()+.5
     except Exception as exc:
         ui.view_state = 'PREFLIGHT BLOCKED'

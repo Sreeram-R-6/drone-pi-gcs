@@ -221,7 +221,7 @@ def run(config, ui, action):
                 t.connection.mav.log_request_end_send(*t.target)
             ui.view_state = action.upper()+' / COMPLETE'
             ui.show_checks = action == 'diagnostics'
-            curses.flushinp()
+            getattr(ui, 'flush_input', curses.flushinp)()
             while not ui.service_exit and not ui.quit_requested:
                 t.pump()
                 t.heartbeat()

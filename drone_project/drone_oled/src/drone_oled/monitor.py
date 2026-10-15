@@ -1,6 +1,7 @@
 """Bounded Pi-only health sampling. Never requires root or an FC connection."""
 
 import json
+import ipaddress
 import logging
 from pathlib import Path
 import re
@@ -11,6 +12,37 @@ from typing import Any
 from .model import TelemetryStore
 
 LOG = logging.getLogger(__name__)
+
+
+def lan_address(addresses: list, config: dict, ethernet_up: bool) -> tuple[str, str]:
+    names = ([config["ethernet_interface"]] if ethernet_up else []) + [config["wifi_interface"]]
+    for name in names:
+        if name.startswith(("tailscale", "tun", "wg", "lo")):
+            continue
+        for interface in addresses:
+            if interface.get("ifname") != name or interface.get("operstate") == "DOWN":
+                continue
+            if "NO-CARRIER" in interface.get("flags", []):
+                continue
+            for entry in interface.get("addr_info", []):
+                if entry.get("scope") != "global":
+                    continue
+                try:
+                    address = ipaddress.ip_address(entry.get("local", ""))
+                except ValueError:
+                    continue
+                if (
+                    address.version != 4
+                    or address.is_loopback
+                    or address.is_link_local
+                    or address.is_unspecified
+                    or address.is_multicast
+                ):
+                    continue
+                if address in ipaddress.ip_network("100.64.0.0/10"):
+                    continue
+                return str(address), name
+    return "--", ""
 
 
 def run(argv: list[str], timeout: float) -> str:
@@ -37,6 +69,7 @@ class PiMonitor(Thread):
             "wifi": None,
             "ethernet": None,
             "ip": "--",
+            "ip_interface": "",
             "cpu": None,
             "pi_temp": None,
         }
@@ -52,13 +85,9 @@ class PiMonitor(Thread):
             pass
         try:
             addresses = json.loads(run(["ip", "-j", "-4", "address", "show"], timeout) or "[]")
-            for name in (c["ethernet_interface"], c["wifi_interface"]):
-                for interface in addresses:
-                    if interface["ifname"] == name:
-                        for addr in interface.get("addr_info", []):
-                            if addr.get("scope") == "global":
-                                values["ip"] = addr["local"]
-                                break
+            values["ip"], values["ip_interface"] = lan_address(
+                addresses, c, values["ethernet"] is True
+            )
         except (ValueError, KeyError):
             pass
         try:

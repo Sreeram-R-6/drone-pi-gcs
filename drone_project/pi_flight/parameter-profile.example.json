@@ -1,0 +1,51 @@
+{
+  "reviewed": false,
+  "flight_sw_version": 67568127,
+  "note": "DRAFT ONLY. Replace null with reviewed values and MAVLink types. Do not approve by copying every current FC value blindly.",
+  "categories": {
+    "arming": {"ARMING_SKIPCHK": {"value": null, "type": null}},
+    "serial_pi": {
+      "SERIAL4_PROTOCOL": {"value": null, "type": null},
+      "SERIAL4_BAUD": {"value": null, "type": null}
+    },
+    "serial_flow": {
+      "SERIAL5_PROTOCOL": {"value": null, "type": null},
+      "SERIAL5_BAUD": {"value": null, "type": null}
+    },
+    "ekf": {
+      "EK3_SRC1_POSXY": {"value": null, "type": null},
+      "EK3_SRC1_VELXY": {"value": null, "type": null},
+      "EK3_SRC1_POSZ": {"value": null, "type": null},
+      "EK3_SRC1_YAW": {"value": null, "type": null}
+    },
+    "flow": {"FLOW_TYPE": {"value": null, "type": null}},
+    "range": {
+      "RNGFND1_TYPE": {"value": null, "type": null},
+      "RNGFND1_ORIENT": {"value": null, "type": null},
+      "RNGFND1_MAX": {"value": null, "type": null},
+      "WP_RFND_USE": {"value": null, "type": null}
+    },
+    "battery": {
+      "BATT_MONITOR": {"value": null, "type": null},
+      "BATT_CAPACITY": {"value": null, "type": null},
+      "BATT_ARM_VOLT": {"value": null, "type": null},
+      "BATT_LOW_VOLT": {"value": null, "type": null},
+      "BATT_CRT_VOLT": {"value": null, "type": null},
+      "BATT_FS_LOW_ACT": {"value": null, "type": null},
+      "BATT_FS_CRT_ACT": {"value": null, "type": null}
+    },
+    "rc_failsafe": {"FS_THR_ENABLE": {"value": null, "type": null}},
+    "gcs_failsafe": {
+      "FS_GCS_ENABLE": {"value": null, "type": null},
+      "FS_GCS_TIMEOUT": {"value": null, "type": null},
+      "MAV_GCS_SYSID": {"value": null, "type": null},
+      "MAV_GCS_SYSID_HI": {"value": null, "type": null},
+      "FS_OPTIONS": {"value": null, "type": null}
+    },
+    "ekf_failsafe": {"FS_EKF_ACTION": {"value": null, "type": null}},
+    "fence": {"FENCE_ENABLE": {"value": null, "type": null}},
+    "rtl": {"RTL_ALT_M": {"value": null, "type": null}},
+    "landing": {"LAND_SPD_MS": {"value": null, "type": null}},
+    "climb": {"WP_SPD_UP": {"value": null, "type": null}}
+  }
+}

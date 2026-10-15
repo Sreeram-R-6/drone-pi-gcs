@@ -30,7 +30,7 @@ class ReleaseTests(unittest.TestCase):
                     'drone_project/pi_flight/fc-review-current.parm',
                     'drone_project/drone_oled/commissioning/profile.live.json'):
             self.assertNotIn(bad, paths)
-        self.assertFalse(any('/.venv/' in p or '/logs/' in p or '.tlog' in p for p in paths))
+        self.assertFalse(any('/.venv/' in p or '/logs/' in p or '.tlog' in p or p.endswith(('.swp','.swo','.tmp','~')) for p in paths))
 
     def test_scanner_recognizes_common_credentials(self):
         self.assertIsNotNone(SECRET.search(b'ghp_' + b'A' * 36))

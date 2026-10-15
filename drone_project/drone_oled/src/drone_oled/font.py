@@ -1,5 +1,7 @@
 """Authoritative ASCII 0x20..0x5A, column bytes, bit zero at top."""
 
+import textwrap
+
 GLYPHS = """
 0000000000 00005F0000 0007000700 147F147F14 242A7F2A12 2313086462 3649552250 0005030000
 001C224100 0041221C00 14083E0814 08083E0808 0050300000 0808080808 0060600000 2010080402
@@ -11,6 +13,8 @@ GLYPHS = """
 6314081463 0708700807 6151494543
 """.split()
 FONT = {chr(i + 32): bytes.fromhex(s) for i, s in enumerate(GLYPHS)}
+# FC parameter identifiers use underscores; preserve their spelling on screen.
+FONT["_"] = bytes([0x40] * 5)
 
 
 def width(text: str, scale: int = 1) -> int:
@@ -25,3 +29,12 @@ def compact(text: str, pixels: int, scale: int = 1) -> str:
     text = "".join(c if c in FONT else "?" for c in str(text).upper())
     count = max(0, (pixels // scale + 1) // 6)
     return text if len(text) <= count else (text[: max(0, count - 1)] + ">" if count else "")
+
+
+def wrap_text(text: str, columns: int = 20) -> list[str]:
+    """Keep the complete message, wrapping at words and splitting oversized tokens."""
+    clean = "".join(c if c in FONT or c == "\n" else "?" for c in str(text).upper())
+    lines = []
+    for paragraph in clean.splitlines():
+        lines.extend(textwrap.wrap(paragraph, width=columns, break_on_hyphens=False) or [""])
+    return lines or [""]

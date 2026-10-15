@@ -6,6 +6,10 @@ Target: Raspberry Pi 4 Model B, 64-bit Raspberry Pi OS Bookworm or Ubuntu
 22.04/24.04, Python 3.10+. A fresh Pi installation has not yet been tested.
 Dependencies alone cannot establish correct aircraft wiring or flight readiness.
 
+The local deployment uses Pi-driven GUIDED missions. The Pi/link is required
+throughout execution; disabling GCS-loss failsafe does not make it independent.
+The optional onboard AUTO backend is inactive and remains commissioning-locked.
+
 ## Layout
 
 - `gcs`: terminal launcher (mission picker, telemetry, map, checks).
@@ -14,6 +18,17 @@ Dependencies alone cannot establish correct aircraft wiring or flight readiness.
 - `drone_project/ros2_ws`, `models`, `worlds`, `drones`, `vision`: optional
   simulation/vision sources; these need separate ROS/Gazebo/camera setup.
 - `scripts`: installation, tests, and public-release preparation.
+
+The organized [2 m flight and USB recording tools](scripts/flight_2m/README.md)
+live under `scripts/flight_2m/`. Flight recordings are saved in `video/`.
+Run `python3 scripts/video_gallery.py` and open **http://localhost:8080** to
+[browse and play recordings](scripts/video_gallery/README.md).
+
+The [startup web dashboard](scripts/web/README.md) at **http://localhost:8070**
+links to the Pi/MAVProxy/Codex terminal (8071), videos (8080), OLED panel (8090),
+and QR receiver (5000), with a mobile flight-script page and live service status.
+Concurrent MAVLink clients use TCP 5760 locally or through Tailscale.
+Install its boot services using `sudo python3 scripts/web/install_services.py --user user`.
 
 ## Install on a Pi 4B
 

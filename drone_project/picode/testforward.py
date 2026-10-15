@@ -4,7 +4,7 @@
 Architecture
 ------------
 MAVProxy is the only serial owner and should forward the verified Pi UART link
-to loopback UDP port 14550.  This program connects to that UDP endpoint; it
+through the shared TCP hub on loopback port 5760. This program connects to that endpoint; it
 does not open ``/dev/ttyAMA2`` itself.
 
 Default flight profile
@@ -336,6 +336,7 @@ def configure_streams(link: VehicleLink) -> None:
         mavutil.mavlink.MAVLINK_MSG_ID_ATTITUDE: 10,
         mavutil.mavlink.MAVLINK_MSG_ID_LOCAL_POSITION_NED: 10,
         mavutil.mavlink.MAVLINK_MSG_ID_GLOBAL_POSITION_INT: 5,
+        mavutil.mavlink.MAVLINK_MSG_ID_OPTICAL_FLOW: 10,
         mavutil.mavlink.MAVLINK_MSG_ID_OPTICAL_FLOW_RAD: 10,
         mavutil.mavlink.MAVLINK_MSG_ID_DISTANCE_SENSOR: 10,
         mavutil.mavlink.MAVLINK_MSG_ID_EKF_STATUS_REPORT: 2,
@@ -352,7 +353,9 @@ def collect_preflight(link: VehicleLink, args: argparse.Namespace) -> None:
     )
     deadline = time.monotonic() + args.sample_seconds
     gps_samples: list[tuple[float, float]] = []
-    flow_quality: list[int] = []
+    flow_samples: dict[str, list[object]] = {
+        "OPTICAL_FLOW": [], "OPTICAL_FLOW_RAD": [],
+    }
     ranges: list[float] = []
     latest_gps = None
     while time.monotonic() < deadline:
@@ -364,8 +367,8 @@ def collect_preflight(link: VehicleLink, args: argparse.Namespace) -> None:
             latest_gps = message
             if message.fix_type >= 3 and message.lat and message.lon:
                 gps_samples.append((message.lat / 1e7, message.lon / 1e7))
-        elif message_type == "OPTICAL_FLOW_RAD":
-            flow_quality.append(int(message.quality))
+        elif message_type in flow_samples:
+            flow_samples[message_type].append(message)
         elif (
             message_type == "DISTANCE_SENSOR"
             and int(message.orientation) == 25
@@ -414,12 +417,21 @@ def collect_preflight(link: VehicleLink, args: argparse.Namespace) -> None:
                 f"GPS p95 radius={p95:.2f}m exceeds {args.max_gps_p95:.2f}m"
             )
 
+    # Match the GCS opt_m_x/opt_m_y/opt_qua source. An unused RAD stream
+    # reporting quality=0 must not mask healthy legacy OPTICAL_FLOW data.
+    flow_kind = "OPTICAL_FLOW" if flow_samples["OPTICAL_FLOW"] else "OPTICAL_FLOW_RAD"
+    samples = flow_samples[flow_kind]
+    flow_quality = [int(message.quality) for message in samples]
     if not flow_quality:
-        failures.append("no OPTICAL_FLOW_RAD from the FC")
+        failures.append("no OPTICAL_FLOW or OPTICAL_FLOW_RAD from the FC")
     else:
         median_quality = statistics.median(flow_quality)
-        print(f"Optical flow median quality={median_quality:.0f}", flush=True)
-        if median_quality < args.min_flow_quality:
+        print(f"{flow_kind} median opt_qua={median_quality:.0f}", flush=True)
+        if any(not flow_values_finite(message, flow_kind) for message in samples):
+            failures.append(f"{flow_kind} has non-finite flow values")
+        if link.cached(flow_kind, 1.5) is None:
+            failures.append(f"{flow_kind} became stale during sampling")
+        if args.min_flow_quality is not None and median_quality < args.min_flow_quality:
             failures.append(
                 f"flow quality={median_quality:.0f}, "
                 f"need >={args.min_flow_quality}"
@@ -611,12 +623,28 @@ def ensure_guided(link: VehicleLink) -> None:
         raise PilotOverride(f"Control released because mode changed to {mode}")
 
 
+def flow_values_finite(message: object, kind: str) -> bool:
+    fields = ("flow_comp_m_x", "flow_comp_m_y") if kind == "OPTICAL_FLOW" else (
+        "integrated_x", "integrated_y",
+    )
+    return all(math.isfinite(float(getattr(message, name, math.nan))) for name in fields)
+
+
+def optical_flow(link: VehicleLink, max_age: float = 1.5) -> tuple[Optional[object], str]:
+    """Prefer FC OPTICAL_FLOW (Mission Planner opt_m_x/y and opt_qua)."""
+    for kind in ("OPTICAL_FLOW", "OPTICAL_FLOW_RAD"):
+        message = link.cached(kind, max_age)
+        if message is not None:
+            return message, kind
+    return None, "OPTICAL_FLOW/OPTICAL_FLOW_RAD"
+
+
 def ensure_guided_health(
     link: VehicleLink, args: argparse.Namespace
 ) -> None:
     ensure_guided(link)
     ekf = link.cached("EKF_STATUS_REPORT", 2.5)
-    flow = link.cached("OPTICAL_FLOW_RAD", 1.5)
+    flow, flow_kind = optical_flow(link)
     distance = link.cached("DISTANCE_SENSOR", 1.5)
     system_status = link.cached("SYS_STATUS", 3.0)
     if ekf is None:
@@ -626,9 +654,12 @@ def ensure_guided_health(
         raise FlightError(f"EKF health flags degraded: 0x{flags:x}")
     if flags & EKF_CONST_POS_MODE:
         raise FlightError("EKF entered constant-position mode")
-    if flow is None or int(flow.quality) < args.min_flow_quality:
-        quality = "stale" if flow is None else str(int(flow.quality))
-        raise FlightError(f"Optical-flow quality degraded: {quality}")
+    if flow is None:
+        raise FlightError("Optical-flow telemetry became stale")
+    if args.min_flow_quality is not None and int(flow.quality) < args.min_flow_quality:
+        raise FlightError(f"Optical-flow quality degraded: {int(flow.quality)}")
+    if not flow_values_finite(flow, flow_kind):
+        raise FlightError(f"{flow_kind} has non-finite flow values")
     if distance is None or int(distance.orientation) != 25:
         raise FlightError("Downward rangefinder became stale")
     range_metres = float(distance.current_distance) / 100.0
@@ -824,7 +855,7 @@ def restore_parameters(
 
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--connection", default="udpin:127.0.0.1:14550")
+    parser.add_argument("--connection", default="tcp:127.0.0.1:5760")
     parser.add_argument("--source-system", type=int, default=250)
     parser.add_argument("--connect-timeout", type=float, default=15.0)
     parser.add_argument("--sample-seconds", type=float, default=10.0)

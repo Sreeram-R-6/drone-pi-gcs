@@ -1,0 +1,46 @@
+{
+  "sites": [
+    {
+      "name": "MAVProxy / Pi terminal",
+      "description": "Open MAVProxy on the Pi or sign in to its real terminal. Uses the existing telemetry router.",
+      "port": 8071,
+      "unit": "drone-mavproxy-web.service",
+      "icon": "\u2328"
+    },
+    {
+      "name": "Flight recordings",
+      "description": "Replay flight videos and download original recordings.",
+      "port": 8080,
+      "unit": "drone-video-gallery.service",
+      "icon": "\u25b7"
+    },
+    {
+      "name": "OLED panel",
+      "description": "Live OLED display, telemetry and existing panel controls.",
+      "port": 8090,
+      "unit": "drone-oled-web.service",
+      "icon": "\u25a4"
+    },
+    {
+      "name": "QR receiver",
+      "description": "View the latest QR value sent by your vision pipeline.",
+      "port": 5000,
+      "unit": "drone-qr-web.service",
+      "icon": "\u25a6"
+    }
+  ],
+  "support_services": [
+    {
+      "name": "OLED front panel",
+      "unit": "drone-oled.service"
+    },
+    {
+      "name": "Telemetry router",
+      "unit": "mavproxy.service"
+    },
+    {
+      "name": "Shared MAVLink hub",
+      "unit": "drone-mavlink-hub.service"
+    }
+  ]
+}

@@ -1,7 +1,7 @@
 """Small heading-relative commissioning routes; no FC parameter bypasses."""
 from dataclasses import dataclass
 import math
-from .mission import Mission, Takeover
+from .mission import Mission, Takeover, target_ned
 from .telemetry import LinkLost, Rejected
 
 
@@ -19,6 +19,25 @@ ROUTES = {
     "box": (Waypoint("Forward 1 m", 1, 0), Waypoint("Right 1 m", 1, 1),
             Waypoint("Backward 1 m", 0, 1), Waypoint("Left to launch", 0, 0)),
 }
+
+
+@dataclass(frozen=True)
+class MissionPlan:
+    """Immutable route snapshot shared by execution, reporting and the GCS."""
+    name: str
+    altitude_m: float
+    hold_s: float
+    waypoints: tuple
+
+
+def compile_plan(config, name):
+    validate_route(config, name)
+    m = config['mission']
+    if m['hold_s'] not in (5, 10):
+        raise Rejected('Only reviewed 5-second or 10-second initial holds are supported')
+    if not math.isfinite(m['altitude_m']) or not 0 < m['altitude_m'] <= m['max_altitude_m']:
+        raise Rejected('Takeoff height exceeds reviewed altitude limits')
+    return MissionPlan(name, m['altitude_m'], m['hold_s'], tuple(ROUTES[name]))
 
 
 def coordinates(baseline, yaw, waypoint, altitude):
@@ -62,6 +81,20 @@ class RouteMission(Mission):
         self.route = route
         self.ui = ui
         self.yaw = None
+        self.plan = None
+
+    def prepare(self):
+        super().prepare()
+        self.plan = compile_plan(self.c, self.route)
+        if self.plan.waypoints and (not isinstance(self.yaw, (int, float)) or not math.isfinite(self.yaw)):
+            raise Rejected('Launch heading unavailable; route rejected before arming')
+        self.report.event('mission_plan', name=self.plan.name,
+                          altitude_m=self.plan.altitude_m, hold_s=self.plan.hold_s,
+                          waypoints=[vars(w) for w in self.plan.waypoints])
+        if self.ui:
+            self.ui.progress = 0.0
+            self.ui.waypoint = '--'
+            self.ui.action = 'Takeoff preparation'
 
     def tick(self):
         super().tick()
@@ -141,7 +174,10 @@ class RouteMission(Mission):
         raise Takeover("Operator RTL")
 
     def after_hold(self):
-        if not ROUTES[self.route]:
+        if not self.plan.waypoints:
+            if self.ui:
+                self.ui.action = 'Hover complete / landing'
+                self.ui.progress = 1.0
             return
         self.machine.transition("ROUTE")
         age = self.c["link"]["max_age_s"]
@@ -150,9 +186,9 @@ class RouteMission(Mission):
         if yaw is None or not math.isfinite(yaw):
             raise Rejected("Launch heading unavailable")
         g = self.c["gcs"]
-        previous = (self.baseline["x"], self.baseline["y"], self.baseline["z"]-2)
-        for index, waypoint in enumerate(ROUTES[self.route], 1):
-            target = coordinates(self.baseline, yaw, waypoint, 2)
+        previous = target_ned(self.baseline, self.plan.altitude_m)
+        for index, waypoint in enumerate(self.plan.waypoints, 1):
+            target = coordinates(self.baseline, yaw, waypoint, self.plan.altitude_m)
             started = self.clock()
             settled = held = None
             length = math.dist(previous, target)
@@ -179,8 +215,10 @@ class RouteMission(Mission):
                     held = now
                 if self.ui:
                     self.ui.action = waypoint.action + (" / hold" if held is not None else " / move + settle")
-                    self.ui.waypoint = f"{index}/{len(ROUTES[self.route])} error {error:.2f} m"
-                    self.ui.progress = ((index-1) + (min(1., (now-held)/waypoint.hold_s) if held else fraction*.5))/len(ROUTES[self.route])
+                    self.ui.waypoint = f"{index}/{len(self.plan.waypoints)} error {error:.2f} m"
+                    phase_progress = (.5 + .5*min(1., (now-held)/waypoint.hold_s)
+                                      if held is not None else fraction*.5)
+                    self.ui.progress = ((index-1) + phase_progress)/len(self.plan.waypoints)
                 if held is not None and now-held >= waypoint.hold_s:
                     break
             self.report.event("waypoint_complete", index=index, action=waypoint.action, target=target)

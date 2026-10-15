@@ -8,6 +8,7 @@ from .input import KeyEvent
 from .model import Snapshot, identity_ok, readiness, fc_arm_available
 from .missions import MissionDefinition
 from .emergency import EmergencyEvent
+from .font import wrap_text
 
 MENU = ("ARM DRONE", "MISSIONS", "TEST MOTORS", "SENSOR CAL", "FAILSAFE", "RESERVED")
 CAL = ("GYRO", "ACCEL 6-AXIS", "COMPASS", "BARO ZERO", "OPTICAL FLOW")
@@ -58,7 +59,9 @@ class FSM:
             setattr(s, key, value)
 
     def alert(self, message: str, now: float, caller: str = "home", title: str = "NOTICE"):
-        self.move("alert", now, message=message, caller=caller, alert_title=title, pending=False)
+        self.move(
+            "alert", now, message=message, caller=caller, alert_title=title, pending=False, page=0
+        )
 
     def mission(self) -> MissionDefinition | None:
         return self.missions[self.state.mission_index] if self.missions else None
@@ -123,7 +126,15 @@ class FSM:
         if s.id == "emergency":
             returning = s.return_id
         cancel = s.pending or s.id in ("run", "mtest")
-        self.move("emergency", now, emergency=event, return_id=returning, pending=False, draft=None)
+        self.move(
+            "emergency",
+            now,
+            emergency=event,
+            return_id=returning,
+            pending=False,
+            draft=None,
+            page=0,
+        )
         return [Effect("cancel")] if cancel else []
 
     def tick(self, snap: Snapshot, now: float) -> list[Effect]:
@@ -319,9 +330,21 @@ class FSM:
             if not s.pending:
                 s.pending, s.phase = True, "STOPPING"
                 return [Effect("motor_stop", s.motor + 1)]
-        elif s.id == "alert" and key in ("ok", "back"):
-            self.move(s.caller, now, draft=None)
+        elif s.id == "alert":
+            if key in ("up", "left", "down", "right"):
+                pages = max(1, (len(wrap_text(s.message)) + 2) // 3)
+                s.page = (s.page + (-1 if key in ("up", "left") else 1)) % pages
+            elif key in ("ok", "back"):
+                self.move(s.caller, now, draft=None)
         elif s.id == "emergency":
+            if (
+                key in ("up", "left", "down", "right")
+                and s.emergency
+                and s.emergency.kind.startswith("FC TEXT ")
+            ):
+                pages = max(1, (len(wrap_text(s.emergency.text)) + 3) // 4)
+                s.page = (s.page + (-1 if key in ("up", "left") else 1)) % pages
+                return []
             if key == "back":
                 if s.emergency:
                     s.acknowledged.add(s.emergency.episode)

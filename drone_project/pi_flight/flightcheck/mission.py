@@ -7,6 +7,7 @@ import signal
 import time
 from .checks import all_pass, evaluate
 from .telemetry import LinkLost, Rejected
+from .mission_policy import policy_checks
 
 
 class Takeover(RuntimeError):
@@ -36,6 +37,10 @@ class Machine:
         exceptional |= (state == "HOLD_5_SECONDS" and current == "SETTLE_AT_2M" or
                         state == "ROUTE" and current in ("HOLD_10_SECONDS", "HOLD_5_SECONDS") or
                         state == "LAND" and current == "ROUTE")
+        exceptional |= ((current, state) in {
+            ('FAST_RECHECK', 'UPLOAD_MISSION'), ('UPLOAD_MISSION', 'SET_GUIDED'),
+            ('ARM', 'START_AUTO'), ('START_AUTO', 'AUTO_RUNNING'),
+            ('AUTO_RUNNING', 'COMPLETE')})
         if not (normal or exceptional):
             raise RuntimeError(f"Illegal transition {current} -> {state}")
         self.state = state
@@ -60,6 +65,27 @@ class Mission:
         self.baseline = None
         self.relative_baseline = None
         self.last_target = -math.inf
+        self.execution_started = False
+
+    def prepare(self):
+        """Reject invalid entry and numeric limits before any mutating command."""
+        if self.c.get('firmware', {}).get('mission_policy') == 'onboard_auto_v1':
+            raise Rejected('GUIDED execution cannot use a GCS-independent AUTO policy')
+        self.t.require_live()
+        if self.t.armed():
+            raise Takeover('Vehicle already armed; mission cannot acquire control')
+        if self.machine.state != 'FAST_RECHECK':
+            raise Rejected('Mission entry requires completed final recheck')
+        for name in ('altitude_m', 'climb_m_s', 'hold_s', 'settle_s',
+                     'setpoint_hz', 'command_timeout_s', 'takeoff_timeout_s',
+                     'disarm_timeout_s', 'max_altitude_m'):
+            value = self.c['mission'].get(name)
+            if isinstance(value, bool) or not isinstance(value, (int, float)) or not math.isfinite(value) or value <= 0:
+                raise Rejected('Invalid mission setting: '+name)
+        if self.c['mission']['altitude_m'] > self.c['mission']['max_altitude_m']:
+            raise Rejected('Takeoff height exceeds abort altitude')
+        if self.c['mission']['hold_s'] not in (5, 10):
+            raise Rejected('Unreviewed initial hold duration')
 
     def signal(self, signum, frame):
         # Signals request cleanup; repeated Ctrl+C cannot interrupt landing monitor.
@@ -228,22 +254,46 @@ class Mission:
             self.t.sending = False
             self.machine.transition("STOP_SENDING")
             print("LINK LOST: commands stopped. Rely on verified FC failsafes/pilot. LAND unconfirmed.", flush=True)
+        except (Exception, KeyboardInterrupt) as recovery_error:
+            # A rejected restoration or secondary transport error must not
+            # escape into curses and leave a stale 'mission active' screen.
+            # Do not retry arm, landing or parameter writes blindly.
+            self.t.sending = False
+            self.owned = False
+            self.machine.transition('STOP_SENDING')
+            self.report.event('recovery_error', error=repr(recovery_error),
+                              restoration_pending=self.parameter_dirty)
+            print('RECOVERY ERROR: commands stopped; pilot/FC owns recovery. '+str(recovery_error), flush=True)
 
     def run(self):
         """Entry only after fresh preflight and explicit Enter. Never called offline."""
+        if self.execution_started or self.machine.state != 'FAST_RECHECK':
+            self.t.flight_authorized = False
+            self.report.event('mission_reentry_rejected', state=self.machine.state)
+            return False
+        self.execution_started = True
         old_handlers = {s: signal.signal(s, self.signal) for s in (signal.SIGINT, signal.SIGTERM)}
         try:
+            self.prepare()
             hold_state = "HOLD_5_SECONDS" if self.c["mission"]["hold_s"] == 5 else "HOLD_10_SECONDS"
             age = self.c["link"]["max_age_s"]
             now = self.clock()
             self.baseline = dict(self.t.store.latest("LOCAL_POSITION_NED", now, age))
             self.relative_baseline = self.t.store.latest("GLOBAL_POSITION_INT", now, age)["relative_alt"]/1000
             self.range_baseline = self.t.store.latest("DISTANCE_SENSOR", now, age)["current_distance"]/100
+            if (not all(math.isfinite(self.baseline[key]) for key in ('x','y','z')) or
+                    not math.isfinite(self.relative_baseline) or
+                    not math.isfinite(self.range_baseline) or self.range_baseline <= 0):
+                raise Rejected('Invalid launch position/altitude/range baseline')
             self.report.event("baseline", local=self.baseline, relative_m=self.relative_baseline,
                               range_m=self.range_baseline, mode=self.t.mode())
             f = self.c["firmware"]
             if f["takeoff_altitude_reference"] not in ("relative_home", "above_launch"):
                 raise Rejected("Takeoff reference frame has not been reviewed")
+            policy = policy_checks(self.t, self.c)
+            if policy and not all_pass(policy):
+                raise Rejected('Takeoff/recovery policy not ready: '+', '.join(
+                    check.name for check in policy if check.state != 'PASS'))
             value, kind = self.t.read_param(f["climb_parameter"])
             if kind != f["climb_parameter_type"]:
                 raise Rejected("Climb parameter type mismatch")
@@ -314,6 +364,7 @@ class Mission:
         except (Exception, KeyboardInterrupt) as exc:
             self.recover(exc)
         finally:
+            self.t.flight_authorized = False
             for s, handler in old_handlers.items():
                 signal.signal(s, handler)
             self.report.event("result", state=self.machine.state,

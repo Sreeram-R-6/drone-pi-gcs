@@ -1,0 +1,25 @@
+[Unit]
+Description=Local drone website dashboard
+After=network.target
+Wants=drone-mavproxy-web.service drone-video-gallery.service drone-qr-web.service drone-oled-web.service
+
+StartLimitIntervalSec=0
+
+[Service]
+Type=simple
+User=@USER@
+WorkingDirectory=@ROOT@
+ExecStart=/usr/bin/python3 -B "@ROOT@/scripts/web_dashboard.py"
+Restart=always
+RestartSec=3
+NoNewPrivileges=true
+ProtectSystem=strict
+ProtectHome=read-only
+ReadWritePaths="@ROOT@/video" /tmp
+# Explicitly launched flight jobs keep running if only the dashboard restarts.
+KillMode=process
+UMask=0077
+RestrictAddressFamilies=AF_INET AF_UNIX
+
+[Install]
+WantedBy=multi-user.target

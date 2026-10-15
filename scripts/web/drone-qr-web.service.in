@@ -1,0 +1,21 @@
+[Unit]
+Description=Local drone QR receiver website
+After=network.target
+
+StartLimitIntervalSec=0
+
+[Service]
+Type=simple
+User=@USER@
+WorkingDirectory=@ROOT@
+ExecStart=/usr/bin/python3 -B "@ROOT@/scripts/web/qr_receiver.py"
+Restart=always
+RestartSec=3
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=read-only
+RestrictAddressFamilies=AF_INET AF_UNIX
+
+[Install]
+WantedBy=multi-user.target

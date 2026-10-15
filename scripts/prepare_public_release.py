@@ -39,10 +39,10 @@ def candidates():
                 rel = path.relative_to(ROOT)
                 project_rel = path.relative_to(ROOT / directory).as_posix()
                 if (path.is_symlink() or not path.is_file() or name in PRIVATE_NAMES
-                    or name.startswith(('.env', '.lgd-nfy'))
+                    or name.endswith('~') or name.startswith(('.env', '.lgd-nfy'))
                     or (directory == 'drone_project' and project_rel in PRIVATE_FILES)
                     or any(s in name for s in ('.tlog', '.backup', '.qrbackup', '.cameratest'))
-                    or path.suffix in {'.pem', '.key', '.pyc', '.so', '.bin', '.part'}):
+                    or path.suffix in {'.pem', '.key', '.pyc', '.so', '.bin', '.part', '.swp', '.swo', '.tmp'}):
                     continue
                 # Large third-party simulator meshes/textures remain upstream.
                 # Preserve model descriptors and all application/test images.

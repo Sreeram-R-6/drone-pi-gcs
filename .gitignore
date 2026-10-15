@@ -33,7 +33,14 @@
 .aws/
 .codex/
 public-release/
+/video/*
+!/video/.gitkeep
 drone_project/pi_flight/config.toml
 drone_project/pi_flight/fc-review-current.parm
 drone_project/drone_oled/commissioning/fc-audit.json
 drone_project/drone_oled/commissioning/profile.live.json
+
+**/*.swp
+**/*.swo
+**/*.tmp
+**/*~

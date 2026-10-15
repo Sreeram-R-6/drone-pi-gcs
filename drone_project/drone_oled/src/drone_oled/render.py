@@ -8,7 +8,7 @@ from functools import lru_cache
 from PIL import Image
 
 from .gfx import Canvas, CHECK, CROSS, WIFI, ETH
-from .font import compact, width
+from .font import compact, width, wrap_text
 from .fsm import FSM, MENU, CAL, PARAMS
 from .model import Snapshot, readiness, home_geometry
 
@@ -126,15 +126,24 @@ def render(fsm: FSM, snap: Snapshot, now: float) -> Image.Image:
         cv.block(74, 14, 52, 11)
         cv.text(79, 16, "SAT " + fmt(get("sats"), 0), max_width=44)
         for index, (x, label) in enumerate(((2, "STATUS"), (65, "MENU"))):
-            color = cv.block(x, 28, 61, 34, s.focus == index)
+            color = cv.block(x, 28, 61, 26, s.focus == index)
             if index == 0:
                 for offset, h in ((0, 4), (6, 8), (12, 12)):
-                    cv.draw.rectangle((x + 22 + offset, 46 - h, x + 25 + offset, 45), fill=color)
-                cv.draw.line((x + 21, 47, x + 38, 47), fill=color)
+                    cv.draw.rectangle((x + 22 + offset, 43 - h, x + 25 + offset, 42), fill=color)
+                cv.draw.line((x + 21, 43, x + 38, 43), fill=color)
             else:
-                for yy in (34, 39, 44):
+                for yy in (31, 36, 41):
                     cv.draw.rectangle((x + 22, yy, x + 37, yy + 2), fill=color)
-            cv.text(x + (61 - width(label)) // 2, 51, label, color=color)
+            cv.text(x + (61 - width(label)) // 2, 45, label, color=color)
+        source = get("ip_interface", "", max_age=c["pi"]["stale_s"])
+        prefix = (
+            "ETH"
+            if source == c["pi"]["ethernet_interface"]
+            else "WIFI"
+            if source == c["pi"]["wifi_interface"]
+            else "IP"
+        )
+        cv.center(56, prefix + " " + get("ip", "--", max_age=c["pi"]["stale_s"]))
         if get("heartbeat") is None:
             # Keep the block geometry; link absence is also explicit on STATUS/SYSTEM.
             cv.draw.point((125, 24), fill=1)
@@ -371,16 +380,36 @@ def render(fsm: FSM, snap: Snapshot, now: float) -> Image.Image:
         deadline = snap.cached("motor_deadline", s.deadline)
         cv.bar(2, 50, 124, 9, 1 - max(0, deadline - now) / c["motors"]["duration_s"])
     elif s.id == "alert":
-        cv.title(compact(s.alert_title, 110), height=12)
-        clean = compact(s.message.upper(), 6000)
-        pages = max(1, math.ceil(len(clean) / 60))
-        chunk = clean[(int(now / 4) % pages) * 60 :][:60]
-        for row in range(3):
-            cv.center(16 + 10 * row, chunk[row * 20 : (row + 1) * 20])
+        lines = wrap_text(s.message)
+        pages = max(1, math.ceil(len(lines) / 3))
+        page = s.page % pages
+        cv.title(
+            compact(s.alert_title, 82 if pages > 1 else 110),
+            f"{page + 1}/{pages}" if pages > 1 else "",
+            height=12,
+        )
+        for row, line in enumerate(lines[page * 3 : page * 3 + 3]):
+            cv.text(4, 16 + 10 * row, line)
         color = cv.block(34, 46, 60, 15, True)
         cv.center(50, "OK", color=color)
+        if pages > 1:
+            cv.text(2, 50, "<")
+            cv.text(120, 50, ">")
     elif s.id == "emergency":
         event = s.emergency
+        if event and event.kind.startswith("FC TEXT "):
+            lines = wrap_text(event.text)
+            pages = max(1, math.ceil(len(lines) / 4))
+            page = s.page % pages
+            cv.title(
+                "PREARM" if "PREARM" in event.text.upper() else "FC MESSAGE",
+                f"{page + 1}/{pages}" if pages > 1 else "",
+                height=12,
+            )
+            for row, line in enumerate(lines[page * 4 : page * 4 + 4]):
+                cv.text(4, 15 + 10 * row, line)
+            cv.center(56, "BACK:ACK OK:LAND")
+            return cv.image
         cv.draw.rectangle((0, 0, 127, 11), fill=int(now * 4) % 2)
         cv.center(
             2,

@@ -1,0 +1,455 @@
+#!/usr/bin/env python3
+"""ArduCopter GUIDED flight: takeoff 2m, forward 2m, return, LAND.
+
+No mission upload, fence upload, or home-location requirement.
+GPS p95 stability threshold: 0.60m.
+Retains preflight, EKF, optical flow, battery and arming checks.
+"""
+
+from __future__ import annotations
+
+import argparse
+import math
+import os
+from pathlib import Path
+import sys
+import time
+
+os.environ["MAVLINK20"] = "1"
+
+sys.path.insert(
+    0,
+    str(Path(__file__).resolve().parents[1] / "drone_project" / "picode")
+)
+
+import testforward as flight
+
+mav = flight.mavutil.mavlink
+
+RADIUS = 3.0
+HEIGHT = 2.0
+DISTANCE = 2.0
+
+
+class Link(flight.VehicleLink):
+
+    def __init__(self, connection):
+        super().__init__(connection, 254)
+        self.last_heartbeat = -math.inf
+
+    def pump(self, timeout=0.2):
+
+        if time.monotonic() - self.last_heartbeat >= 1:
+            self.master.mav.heartbeat_send(
+                mav.MAV_TYPE_GCS,
+                mav.MAV_AUTOPILOT_INVALID,
+                0, 0,
+                mav.MAV_STATE_ACTIVE
+            )
+            self.last_heartbeat = time.monotonic()
+
+        message = self.master.recv_match(
+            blocking=True,
+            timeout=timeout
+        )
+
+        if message is None or message.get_type() == "BAD_DATA":
+            return None
+
+        if self.target_system and (
+            message.get_srcSystem() != self.target_system
+            or message.get_srcComponent() != self.target_component
+        ):
+            return None
+
+        self.latest[message.get_type()] = (
+            message,
+            time.monotonic()
+        )
+
+        if message.get_type() == "STATUSTEXT":
+            text = str(message.text).rstrip("\x00")
+            self.status_text.append(
+                (time.monotonic(), text)
+            )
+            print("AP:", text, flush=True)
+
+        return message
+
+
+def guard(link, args, start):
+
+    flight.ensure_guided_health(link, args)
+
+    if not link.is_armed():
+        raise flight.FlightError("Unexpected disarm")
+
+    local = link.cached("LOCAL_POSITION_NED", 1)
+    position = link.cached("GLOBAL_POSITION_INT", 1)
+
+    if local is None or position is None:
+        raise flight.FlightError("Position telemetry stale")
+
+    if not all(
+        math.isfinite(getattr(local, key))
+        for key in ("x", "y", "z", "vx", "vy", "vz")
+    ):
+        raise flight.FlightError("Invalid local position")
+
+    distance = math.hypot(
+        local.x - start.x,
+        local.y - start.y
+    )
+
+    if distance >= RADIUS:
+        raise flight.FlightError(
+            "3m local-position radius reached"
+        )
+
+    altitude = position.relative_alt / 1000
+
+    if altitude > HEIGHT + 0.6:
+        raise flight.FlightError(
+            "Altitude limit exceeded"
+        )
+
+
+
+def send_target_hold_yaw(link, north, east, down, yaw):
+    # Position XYZ + explicit yaw target.
+    # Ignore velocity, acceleration and yaw rate.
+    link.master.mav.set_position_target_local_ned_send(
+        0,
+        link.target_system,
+        link.target_component,
+        mav.MAV_FRAME_LOCAL_NED,
+        0x09F8,
+        north, east, down,
+        0, 0, 0,
+        0, 0, 0,
+        yaw, 0
+    )
+
+
+def move(link, args, start, north, east, label):
+
+    deadline = time.monotonic() + 50
+    settled = None
+
+    while time.monotonic() < deadline:
+
+        link.pump(0.1)
+
+        guard(link, args, start)
+
+        send_target_hold_yaw(
+            link,
+            north,
+            east,
+            start.z - HEIGHT,
+            link.hold_yaw
+        )
+
+        position = link.cached(
+            "LOCAL_POSITION_NED", 1
+        )
+
+        if abs(
+            start.z - position.z - HEIGHT
+        ) > 0.6:
+            raise flight.FlightError(
+                "Altitude deviated during movement"
+            )
+
+        error = math.hypot(
+            position.x - north,
+            position.y - east
+        )
+
+        speed = math.hypot(
+            position.vx,
+            position.vy
+        )
+
+        if error <= 0.2 and speed <= 0.2:
+
+            settled = settled or time.monotonic()
+
+            if time.monotonic() - settled >= 2:
+                print(label + " reached", flush=True)
+                return
+
+        else:
+            settled = None
+
+    raise flight.FlightError(
+        label + " timed out"
+    )
+
+
+def takeoff(link, args, start):
+
+    guard(link, args, start)
+
+    link.command_long(
+        mav.MAV_CMD_NAV_TAKEOFF,
+        (0, 0, 0, math.nan, 0, 0, HEIGHT)
+    )
+
+    deadline = time.monotonic() + 35
+    settled = None
+
+    while time.monotonic() < deadline:
+
+        link.pump(0.1)
+
+        guard(link, args, start)
+
+        local = link.cached(
+            "LOCAL_POSITION_NED", 1
+        )
+
+        position = link.cached(
+            "GLOBAL_POSITION_INT", 1
+        )
+
+        drift = math.hypot(
+            local.x - start.x,
+            local.y - start.y
+        )
+
+        if drift > 0.5:
+            raise flight.FlightError(
+                "Excessive drift during takeoff"
+            )
+
+        altitude = position.relative_alt / 1000
+
+        if abs(altitude - HEIGHT) <= 0.2:
+
+            settled = settled or time.monotonic()
+
+            if time.monotonic() - settled >= 2:
+                print(
+                    "Takeoff altitude reached",
+                    flush=True
+                )
+                return
+
+        else:
+            settled = None
+
+    raise flight.FlightError(
+        "Takeoff timed out"
+    )
+
+
+def main():
+
+    parser = argparse.ArgumentParser(
+        description=__doc__
+    )
+
+    parser.add_argument(
+        "--connection",
+        default="udpin:127.0.0.1:14550"
+    )
+
+    parser.add_argument(
+        "--execute",
+        action="store_true"
+    )
+
+    options = parser.parse_args()
+
+    print(
+        "Plan: preflight -> GUIDED -> arm -> "
+        "takeoff 2m -> forward 2m -> return -> LAND"
+    )
+
+    if not options.execute:
+        print("Plan only. Use --execute to fly.")
+        return 0
+
+    args = argparse.Namespace(
+        sample_seconds=10,
+        min_satellites=10,
+        max_eph_cm=150,
+        max_gps_p95=0.6,
+        min_flow_quality=50,
+        max_preflight_tilt=8,
+        min_battery_voltage=14.4,
+        min_battery_remaining=50,
+        climb_rate=0.3,
+        forward_speed=0.3
+    )
+
+    link = Link(options.connection)
+
+    saved = []
+    owned = False
+
+    try:
+
+        link.connect_vehicle(15)
+
+        flight.configure_streams(link)
+
+        flight.collect_preflight(link, args)
+
+        # No home-position lookup or home-distance check.
+
+        flight.run_prearm_checks(link)
+
+        (
+            climb,
+            climb_value,
+            horizontal,
+            horizontal_value
+        ) = flight.speed_parameter_values(
+            link, args
+        )
+
+        for parameter, value in (
+            (climb, climb_value),
+            (horizontal, horizontal_value)
+        ):
+            saved.append(parameter)
+            link.set_parameter(parameter, value)
+
+        start = link.wait_for(
+            "LOCAL_POSITION_NED", 3
+        )
+
+        yaw = link.wait_for(
+            "ATTITUDE", 3
+        ).yaw
+
+        link.hold_yaw = yaw
+        if not math.isfinite(yaw):
+            raise flight.FlightError(
+                "Invalid heading"
+            )
+
+        args.sample_seconds = 3
+
+        flight.collect_preflight(link, args)
+
+        link.set_mode("GUIDED")
+
+        owned = True
+
+        flight.arm(link)
+
+        takeoff(link, args, start)
+
+        target_north = (
+            start.x + DISTANCE * math.cos(yaw)
+        )
+
+        target_east = (
+            start.y + DISTANCE * math.sin(yaw)
+        )
+
+        move(
+            link, args, start,
+            target_north,
+            target_east,
+            "Forward point"
+        )
+
+        move(
+            link, args, start,
+            start.x,
+            start.y,
+            "Launch point"
+        )
+
+        link.set_mode("LAND")
+
+        owned = False
+
+        deadline = time.monotonic() + 180
+
+        while time.monotonic() < deadline:
+
+            link.pump(0.2)
+
+            if not link.is_armed():
+                print(
+                    "Mission complete: landed and disarmed."
+                )
+                break
+
+        else:
+            raise flight.FlightError(
+                "LAND requested but disarm not confirmed"
+            )
+
+        return 0
+
+    except flight.PilotOverride as error:
+
+        owned = False
+
+        print(
+            f"Pilot/FC override: {error}",
+            file=sys.stderr
+        )
+
+        return 2
+
+    except (Exception, KeyboardInterrupt) as error:
+
+        print(
+            f"Mission stopped: {error}",
+            file=sys.stderr
+        )
+
+        if owned:
+            flight.land_if_owned(link)
+
+        return 1
+
+    finally:
+
+        heartbeat = link.cached(
+            "HEARTBEAT", 2
+        )
+
+        if (
+            saved
+            and heartbeat is not None
+            and not link.is_armed()
+        ):
+
+            remaining = flight.restore_parameters(
+                link, saved
+            )
+
+            if remaining:
+                print(
+                    "Restore manually: " +
+                    ", ".join(
+                        f"{p.name}={p.value}"
+                        for p in remaining
+                    ),
+                    file=sys.stderr
+                )
+
+        elif saved:
+
+            print(
+                "Restoration deferred; after landing restore: " +
+                ", ".join(
+                    f"{p.name}={p.value}"
+                    for p in saved
+                ),
+                file=sys.stderr
+            )
+
+        link.master.close()
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())

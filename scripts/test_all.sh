@@ -4,6 +4,13 @@ base=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd)
 python="$base/drone_project/pi_flight/.venv/bin/python"
 [[ -x $python ]] || { echo 'Run scripts/setup_pi.sh first.'; exit 2; }
 "$python" "$base/scripts/test_tools.py"
+"$python" "$base/scripts/test_flight_2m.py"
+"$python" "$base/scripts/test_video_gallery.py"
+"$python" "$base/scripts/test_web_services.py"
+"$python" "$base/scripts/test_gcs_web.py"
+"$python" "$base/scripts/test_script_runs.py"
+"$python" "$base/scripts/test_pi_terminal.py"
+"$python" "$base/scripts/test_mavlink_hub.py"
 for script in "$base"/scripts/*.sh "$base"/drone_project/pi_flight/*.sh; do
     bash -n "$script"
 done

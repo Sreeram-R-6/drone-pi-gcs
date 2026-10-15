@@ -150,7 +150,10 @@ class WorkflowTests(unittest.TestCase):
                  patch('preflight_hover.sys.stdin.isatty',return_value=True), \
                  patch('preflight_hover.time.monotonic',return_value=100), \
                  patch('flightcheck.routes.RouteMission') as mission,contextlib.redirect_stdout(io.StringIO()):
-                mission.return_value.run.return_value = True
+                def run_with_permission():
+                    self.assertTrue(t.flight_authorized)
+                    return True
+                mission.return_value.run.side_effect = run_with_permission
                 result = preflight_hover.main(['--check-once','--flight'],ui=ui,
                                              existing_transport=t if borrowed else None)
                 called = mission.return_value.run.call_count
@@ -180,7 +183,7 @@ class WorkflowTests(unittest.TestCase):
         result,calls,t,ui = self.gated_run()
         self.assertEqual(result,0)
         self.assertEqual(calls,1)
-        self.assertTrue(t.flight_authorized)
+        self.assertFalse(t.flight_authorized) # Permission is revoked after the mission returns.
         self.assertEqual(t.sample.call_count,2)
 
     def test_cancelled_final_enter_never_starts_mission(self):

@@ -47,7 +47,7 @@ def dashboard(ui, argv):
             ui.manual_action = None
             ui.service_request = None
             ui.menu_requested = False
-            curses.flushinp()
+            getattr(ui, 'flush_input', curses.flushinp)()
             current = list(argv)
             continue
         if '--monitor' in current and result in (MISSION_SELECTED, MANUAL_SELECTED, SERVICE_SELECTED):
@@ -56,7 +56,7 @@ def dashboard(ui, argv):
             ui.receive_only = False
             ui.transport = None # Monitor has closed/released its sole UART ownership.
             ui.request = None
-            curses.flushinp()
+            getattr(ui, 'flush_input', curses.flushinp)()
             current = (service_args(argv, ui.service_request) if result == SERVICE_SELECTED else manual_args(argv, ui.manual_action) if result == MANUAL_SELECTED
                        else selected_mission_args(argv))
             continue
@@ -64,7 +64,9 @@ def dashboard(ui, argv):
             outcome = ui.mission.machine.state if ui.mission else ui.view_state
             if ui.view_state not in ('PREFLIGHT BLOCKED','MAINTENANCE BLOCKED') and '--maintenance' not in current:
                 label = 'ARM CONTROL' if '--arm-only' in current or '--disarm-only' in current else ui.route
-                ui.workflow_status = f'{label}: {outcome} (code {result}). M selects a mission.'
+                ui.workflow_status = ('Onboard completion UNKNOWN; aircraft may still be active. Use RC; do not restart.'
+                    if getattr(ui.mission, 'started', False) and outcome != 'COMPLETE' else
+                    f'{label}: {outcome} (code {result}). M selects a mission.')
             ui.mission = None
             if '--flight' not in current or ui.view_state != 'PREFLIGHT BLOCKED':
                 ui.mission_selected = False
@@ -74,7 +76,7 @@ def dashboard(ui, argv):
                 return result
             ui.manual_action = None
             current = list(argv)
-            curses.flushinp()
+            getattr(ui, 'flush_input', curses.flushinp)()
             continue
         ui.mission = None
         if ui.quit_requested:
@@ -92,7 +94,7 @@ def dashboard(ui, argv):
                 ui.manual_action = None
                 ui.service_request = None
                 ui.menu_requested = False
-                curses.flushinp()
+                getattr(ui, 'flush_input', curses.flushinp)()
                 current = list(argv)
                 break
             if initial_monitor and (ui.menu_requested or getattr(ui,'manual_action',None) or getattr(ui,'service_request',None)):
@@ -103,7 +105,7 @@ def dashboard(ui, argv):
                     ui.receive_only = False
                     ui.transport = None
                     ui.request = None
-                    curses.flushinp()
+                    getattr(ui, 'flush_input', curses.flushinp)()
                     current = (service_args(argv,ui.service_request) if getattr(ui,'service_request',None) else manual_args(argv, ui.manual_action) if ui.manual_action
                                else selected_mission_args(argv))
                     break

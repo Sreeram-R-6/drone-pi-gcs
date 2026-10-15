@@ -16,6 +16,7 @@ from flightcheck.mission import Machine, Mission
 from flightcheck.reporting import Report, utc
 from flightcheck.telemetry import LinkLost, Rejected, Transport, parameter_audit, process_lock
 from flightcheck.startup import START_MODES, confirmation_mode, check_confirmation_state
+from flightcheck.mission_policy import policy_checks
 
 HUMAN_ITEMS = (
     "Propellers correctly positioned and undamaged",
@@ -105,7 +106,9 @@ def identity_checks(t, c):
     result.append(Check('firmware behavior review','PASS' if
                         c['commissioning']['firmware_behavior_reviewed'] else 'UNKNOWN',
                         c['commissioning']['firmware_behavior_reviewed'],
-                        'reviewed GUIDED takeoff, climb parameter units and altitude reference for this firmware',
+                        'reviewed '+('AUTO upload/start, onboard landing and link-loss behavior' if
+                            c.get('gcs', {}).get('execution_backend') == 'onboard_auto' else
+                            'GUIDED takeoff, climb parameter units and altitude reference')+' for this firmware',
                         'Knowing the board target does not verify takeoff and recovery behavior'))
     actual_mode = t.mode()
     captured_mode = getattr(t,'preflight_mode',None)
@@ -162,6 +165,8 @@ def main(argv=None, ui=None, *, existing_transport=None):
         from flightcheck.manual import arm_control
         return arm_control(c, ui)
     if args.flight and ui is not None:
+        ui.action, ui.waypoint, ui.progress = 'Awaiting preflight', '--', 0.0
+        ui.request = None
         ui.receive_only = False
         ui.view_state = 'MISSION PREFLIGHT / LIVE LINK' if existing_transport is not None else 'MISSION PREFLIGHT / CONNECTING'
         ui.workflow_status = 'Selected '+ui.route.upper()+'. Checking live readiness; start locked.'
@@ -265,7 +270,7 @@ def main(argv=None, ui=None, *, existing_transport=None):
                 ui.view_state = 'FULL PREFLIGHT'
                 ui.notice = 'Checking sensors, identity, firmware and parameters • flight locked'
                 ui.workflow_status = 'Checking live sensors, identity, firmware and parameters. Please wait.'
-            audit = parameter_audit(t, c)
+            audit = parameter_audit(t, c) + policy_checks(t, c)
             identity = identity_checks(t, c)
             if ui is not None:
                 # Publish completed gates before the stationary sample finishes.
@@ -322,7 +327,15 @@ def main(argv=None, ui=None, *, existing_transport=None):
             print("Sources: GPS XY position, MTF-01 XY velocity, barometer height, compass yaw.")
             print(f"Recovery modes: {c['commissioning']['recovery_modes']}; MOTORS WILL ARM.")
             print("Final Enter also reconfirms the area remains clear and pilot/observer remain ready.")
-            if ui is None:
+            if c.get('gcs', {}).get('execution_backend') == 'onboard_auto':
+                from flightcheck.onboard import OnboardMission
+                mission = OnboardMission(t, c, report, machine,
+                    route=ui.route if ui is not None else 'hover', ui=ui)
+                if ui is not None:
+                    ui.mission = mission
+                    ui.selected = 1
+                    ui.workflow_status = ''
+            elif ui is None:
                 termios.tcflush(sys.stdin.fileno(), termios.TCIFLUSH)
             print('ALL REQUIRED CHECKS PASSED. Press Enter for fast recheck and '+
                   ('ARM ONLY; NO TAKEOFF.' if manual_action == 'ARM' else 'begin the 2.0 m flight.'))
@@ -338,7 +351,7 @@ def main(argv=None, ui=None, *, existing_transport=None):
                 ui.notice = 'Rechecking fresh telemetry and parameters before arming'
             # Final Enter explicitly renews all area/pilot/observer confirmations.
             report.event("area_ready_renewed", confirmed_at=utc())
-            fast_audit = parameter_audit(t, c)
+            fast_audit = parameter_audit(t, c) + policy_checks(t, c)
             start, end = t.sample(c["sampling"]["fast_s"])
             fast = identity_checks(t, c) + evaluate(t.store, c, start, end)
             # Readbacks are fresh after Enter; no cached parameter assumptions.
@@ -381,6 +394,13 @@ def main(argv=None, ui=None, *, existing_transport=None):
                 ui.selected = 1
                 ui.workflow_status = ''
             success = mission.run()
+            if ui is not None:
+                ui.view_state = 'MISSION COMPLETE' if success else 'MISSION STOPPED'
+                ui.workflow_status = ('Mission completed; disarm observed.' if success else
+                    ('Onboard completion UNKNOWN; aircraft may still be active. Use RC; do not restart.'
+                     if getattr(mission, 'started', False) else
+                     'Mission stopped: '+mission.machine.state+'. Review report before retrying.'))
+                ui.notice = ui.workflow_status
             print("PASS" if success else "FAIL", f"Report: {report.path}")
             return 0 if success else 3
         except (Rejected, LinkLost, ValueError, OSError, KeyboardInterrupt, Exception) as exc:
@@ -394,8 +414,8 @@ def main(argv=None, ui=None, *, existing_transport=None):
             if ui is not None:
                 ui.preflight_pending = ''
             if t is not None:
+                t.flight_authorized = False
                 if saved_transport is not None:
-                    t.flight_authorized = False
                     t.preflight_mode = saved_preflight_mode
                     t.c, t.report, t.receive_only, t.observer, t.ui = saved_transport
                 elif existing_transport is None:

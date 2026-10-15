@@ -304,7 +304,10 @@ class Transport:
     def initialize_streams(self):
         # Only non-actuating requests. Unsupported requests remain visible and block relevant gates.
         self.command(512, [148]) # AUTOPILOT_VERSION
-        for msg_id in (0, 1, 24, 30, 32, 33, 65, 100, 106, 132, 147, 193, 241, 242, 49, 245):
+        ids = (0, 1, 24, 30, 32, 33, 65, 100, 106, 132, 147, 193, 241, 242, 49, 245)
+        if self.c.get('gcs', {}).get('execution_backend') == 'onboard_auto':
+            ids += (42,) # MISSION_CURRENT is monitoring, never a setpoint.
+        for msg_id in ids:
             if getattr(self,'ui',None) is not None:
                 self.ui.workflow_status = f'FC connected. Requesting telemetry message {msg_id}; unsupported requests may time out.'
                 self.ui.notice = self.ui.workflow_status
@@ -377,6 +380,10 @@ def parameter_audit(transport, config):
     if not path:
         return [Check("live parameter audit", "UNKNOWN", None, "firmware-matched reviewed profile")]
     profile = json.loads((Path(config["_base"])/path).read_text())
+    if profile.get('reviewed') is False:
+        return [Check('live parameter audit', 'UNKNOWN', None,
+                      'reviewed firmware-matched parameter values and MAVLink types',
+                      'Draft profile only; do not approve until every value and recovery behavior is reviewed')]
     required = {"arming", "serial_pi", "serial_flow", "ekf", "flow", "range", "battery",
                 "rc_failsafe", "gcs_failsafe", "ekf_failsafe", "fence", "rtl", "landing", "climb"}
     if set(profile.get("categories", {})) != required:

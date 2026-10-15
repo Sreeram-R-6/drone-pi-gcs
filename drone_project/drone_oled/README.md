@@ -301,3 +301,11 @@ The supplied web unit binds localhost. Use the SSH tunnel above for remote
 access. For deliberate Tailscale-only access, configure a systemd override
 with the Pi's own verified address and an explicit `--allow-host`; do not copy
 another Pi's address or expose flight-control buttons to the public Internet.
+
+### LAN address and Ethernet on the OLED
+
+Home now always has a LAN-address footer (ETH / WIFI plus the full IPv4 address). Its STATUS/MENU blocks are shortened to leave room. The network monitor selects connected Ethernet first, then WiFi. It excludes Tailscale/VPN interfaces and 100.64.0.0/10 addresses, disconnected Ethernet addresses, loopback and link-local addresses. When no LAN address exists, it shows `IP --`; it never falls back to the Tailscale address. The Ethernet icon appears when carrier is up, including while DHCP is still obtaining an address. System status also uses the same LAN address. Tailscale website access remains separate and unchanged.
+
+### Readable pre-arm reasons
+
+Pre-arm rejection alerts now wrap complete messages at word boundaries into 20-character lines, splitting long sensor/parameter identifiers without truncation. Longer messages have numbered pages: use UP/DOWN or LEFT/RIGHT (website PREV/NEXT) to read them, then OK/BACK to close. Pages stay still until you navigate. High-severity FC text/pre-arm notices also show the actual wrapped message instead of only a clipped banner plus flight HUD. Their existing BACK acknowledgement and OK→LAND confirmation behavior is preserved.
