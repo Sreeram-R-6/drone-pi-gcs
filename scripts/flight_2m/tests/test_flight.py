@@ -23,11 +23,12 @@ class FlightTests(unittest.TestCase):
             link.assert_not_called()
             video.from_options.assert_not_called()
 
-    def fake_flight(self, camera_error=False, takeoff_error=False):
+    def fake_flight(self, camera_error=False, takeoff_error=False, hover_error=False, nav_alt=0, auto_fence=0):
         events = []
         link = MagicMock()
         link.cached.return_value = SimpleNamespace()
         link.is_armed.return_value = False
+        link.get_parameter.side_effect = lambda names: mission.flight.SavedParameter(names[0], nav_alt if names[0]=="WP_NAVALT_MIN" else auto_fence, 9)
         link.wait_for.return_value = SimpleNamespace(x=0, y=0, z=0, yaw=0)
         link.set_mode.side_effect = lambda mode: events.append(mode)
         video = MagicMock()
@@ -42,6 +43,10 @@ class FlightTests(unittest.TestCase):
             events.append("takeoff")
             if takeoff_error:
                 raise mission.flight.FlightError("takeoff rejected")
+        def hover(*args):
+            events.append("hover")
+            if hover_error:
+                raise mission.flight.FlightError("hover did not stabilize")
         def reference(*args):
             events.append("reference")
             return SimpleNamespace(x=0, y=0, z=0), 0
@@ -52,22 +57,29 @@ class FlightTests(unittest.TestCase):
             stack.enter_context(patch.object(mission.VideoRecorder, "from_options", return_value=video))
             stack.enter_context(patch.object(mission, "takeoff_reference", side_effect=reference))
             stack.enter_context(patch.object(mission, "verified_takeoff", side_effect=takeoff))
+            stack.enter_context(patch.object(mission, "stabilize_launch", side_effect=hover))
             stack.enter_context(patch.object(mission, "move_forward", side_effect=lambda *a: events.append("forward")))
+            stack.enter_context(patch.object(mission, "return_launch", side_effect=lambda *a: events.append("return")))
             for name in ("configure_streams", "collect_preflight", "run_prearm_checks"):
                 stack.enter_context(patch.object(mission.flight, name))
             stack.enter_context(patch.object(mission.flight, "speed_parameter_values", return_value=(MagicMock(), .3, MagicMock(), .3)))
-            stack.enter_context(patch.object(mission.flight, "restore_parameters", return_value=[]))
+            restore = stack.enter_context(patch.object(mission.flight, "restore_parameters", return_value=[]))
             stack.enter_context(patch.object(mission.flight, "arm", side_effect=lambda *a: events.append("arm")))
             stack.enter_context(patch.object(mission.flight, "land_if_owned", side_effect=lambda *a: events.append("LAND")))
             stack.enter_context(contextlib.redirect_stdout(io.StringIO()))
             stack.enter_context(contextlib.redirect_stderr(io.StringIO()))
             result = mission.main()
+            if nav_alt and not camera_error:
+                self.assertTrue(any(call.args[0].name == "WP_NAVALT_MIN" and call.args[1] == 0
+                                    for call in link.set_parameter.call_args_list))
+                self.assertTrue(any(parameter.name == "WP_NAVALT_MIN" and parameter.value == nav_alt
+                                    for parameter in restore.call_args.args[1]))
         return result, events
 
-    def test_video_spans_arm_takeoff_forward_rtl(self):
+    def test_video_spans_arm_takeoff_destination_return_land(self):
         result, events = self.fake_flight()
         self.assertEqual(result, 0)
-        self.assertEqual(events, ["record", "GUIDED", "arm", "reference", "takeoff", "forward", "RTL", "stop_record"])
+        self.assertEqual(events, ["record", "GUIDED", "arm", "reference", "takeoff", "hover", "forward", "return", "LAND", "stop_record"])
 
     def test_camera_failure_prevents_arming(self):
         result, events = self.fake_flight(camera_error=True)
@@ -78,6 +90,20 @@ class FlightTests(unittest.TestCase):
         result, events = self.fake_flight(takeoff_error=True)
         self.assertEqual(result, 1)
         self.assertEqual(events, ["record", "GUIDED", "arm", "reference", "takeoff", "LAND", "stop_record"])
+
+    def test_unstable_hover_lands_without_forward_travel(self):
+        result, events = self.fake_flight(hover_error=True)
+        self.assertEqual(result, 1)
+        self.assertEqual(events, ["record", "GUIDED", "arm", "reference", "takeoff", "hover", "LAND", "stop_record"])
+
+    def test_delayed_navigation_is_temporarily_removed_and_restored(self):
+        result, events = self.fake_flight(nav_alt=2)
+        self.assertEqual(result, 0)
+        self.assertIn("hover", events)
+
+    def test_takeoff_only_fence_activation_is_not_silently_skipped(self):
+        result,events=self.fake_flight(auto_fence=1)
+        self.assertEqual(result,1);self.assertEqual(events,[])
 
     def test_legacy_mtf_flow_preferred(self):
         link = MagicMock()
@@ -124,8 +150,9 @@ class FlightTests(unittest.TestCase):
         link.cached.side_effect = lambda kind, age: values.get(kind)
         return link, values
 
-    def run_range_takeoff(self, centimetres, z):
+    def run_range_takeoff(self, centimetres, z, vz=0):
         link, values = self.range_link(centimetres, z)
+        values["LOCAL_POSITION_NED"].vz = vz
         start = mission.TakeoffReference(0,0,0,.06)
         tick = iter(i / 10 for i in range(3000))
         def acknowledge(*args):
@@ -136,20 +163,130 @@ class FlightTests(unittest.TestCase):
             return mission.verified_takeoff(link, SimpleNamespace(), start)
 
     def test_takeoff_confirmed_by_range_even_when_local_z_has_not_changed(self):
-        self.assertEqual(self.run_range_takeoff(206, z=0), 0)
+        self.assertEqual(self.run_range_takeoff(156, z=0), 0)
 
     def test_local_altitude_cannot_confirm_takeoff_when_range_stays_on_ground(self):
         with self.assertRaisesRegex(mission.flight.FlightError, "rangefinder height timeout"):
             self.run_range_takeoff(6, z=-2)
 
+    def test_height_alone_does_not_confirm_while_climbing(self):
+        with self.assertRaisesRegex(mission.flight.FlightError, "rangefinder height timeout"):
+            self.run_range_takeoff(156, z=-2, vz=-.3)
+
+    def test_takeoff_velocity_feedback_corrects_xy_and_stops_at_buffered_height(self):
+        link,values=self.range_link(6,z=.2)
+        local=values['LOCAL_POSITION_NED'];clock=[0.0];velocity=[None];first_height=[];maximum=[0]
+        local.x=.15
+        def pump(dt):
+            clock[0]+=dt
+            if velocity[0] is None:
+                local.vz=-.2;local.vx=.04;local.vy=0
+            else:
+                # Simple controller lag, not a certified dynamics simulation.
+                for name,request in zip(('vx','vy','vz'),velocity[0]):
+                    setattr(local,name,getattr(local,name)+.5*(request-getattr(local,name)))
+            local.z+=local.vz*dt;local.x+=local.vx*dt;local.y+=local.vy*dt
+            values['DISTANCE_SENSOR'].current_distance=round((.06+.2-local.z)*100)
+            maximum[0]=max(maximum[0],values['DISTANCE_SENSOR'].current_distance/100)
+        def command(*args):
+            height=mission.rangefinder_height(link,mission.TakeoffReference(0,0,.2,.06))
+            first_height.append(height);velocity[0]=args[8:11]
+            self.assertEqual(args[4],0x09C7)
+            self.assertLessEqual(math.hypot(args[8],args[9]),.2+1e-9)
+            self.assertLessEqual(abs(args[10]),.15+1e-9)
+        def ack(*args):
+            self.assertEqual(args[-1],.8)
+            link.last_takeoff_ack=(SimpleNamespace(result=mission.mav.MAV_RESULT_ACCEPTED),clock[0])
+        link.pump.side_effect=pump;link.master.mav.command_long_send.side_effect=ack
+        link.master.mav.set_position_target_local_ned_send.side_effect=command
+        with patch.object(mission.time,'monotonic',side_effect=lambda:clock[0]),patch.object(mission.flight,'ensure_guided_health'),contextlib.redirect_stdout(io.StringIO()):
+            mission.verified_takeoff(link,SimpleNamespace(),mission.TakeoffReference(0,0,.2,.06),.3)
+        self.assertLess(first_height[0],1)
+        self.assertLess(abs(local.x),.15)
+        self.assertLess(maximum[0],1.85)
+        self.assertLess(abs(mission.rangefinder_height(link,mission.TakeoffReference(0,0,.2,.06))-1.5),.1)
+
+    def test_hover_correction_converges_from_both_drift_directions(self):
+        for direction in (-1,1):
+            with self.subTest(direction=direction):
+                link,values=self.range_link(156,z=-.4)
+                local=values['LOCAL_POSITION_NED'];local.x=direction*.35;local.y=-direction*.15
+                clock=[0.0];velocity=[(0,0,0)]
+                def command(*args):
+                    self.assertEqual(args[3:5],(mission.mav.MAV_FRAME_LOCAL_NED,0x09C7));self.assertEqual(args[14],.7)
+                    velocity[0]=args[8:11]
+                def pump(dt):
+                    clock[0]+=dt
+                    local.vx,local.vy,local.vz=velocity[0]
+                    local.x+=local.vx*dt;local.y+=local.vy*dt
+                link.master.mav.set_position_target_local_ned_send.side_effect=command;link.pump.side_effect=pump
+                with patch.object(mission.time,'monotonic',side_effect=lambda:clock[0]),patch.object(mission.flight,'ensure_guided_health'),contextlib.redirect_stdout(io.StringIO()):
+                    mission.stabilize_launch(link,SimpleNamespace(),mission.TakeoffReference(0,0,0,.06),.7,-.4)
+                self.assertLess(math.hypot(local.x,local.y),.15)
+                self.assertGreater(clock[0],2)
+
+    def test_range_feedback_ignores_wrong_local_z_and_brakes_before_ceiling(self):
+        link,values=self.range_link(126,z=100)
+        start=mission.TakeoffReference(0,0,0,.06)
+        tracker=mission.RangeTracking()
+        tracker.command(link,start,0,0,0)
+        self.assertLess(link.master.mav.set_position_target_local_ned_send.call_args.args[10],0)
+        values['DISTANCE_SENSOR'].current_distance=176
+        tracker=mission.RangeTracking();tracker.command(link,start,0,0,0)
+        self.assertGreater(link.master.mav.set_position_target_local_ned_send.call_args.args[10],0)
+        link.master.mav.set_position_target_local_ned_send.reset_mock()
+        values['DISTANCE_SENSOR'].current_distance=186
+        with patch.object(mission.flight,'ensure_guided_health'), self.assertRaisesRegex(mission.flight.FlightError,'ceiling'):
+            mission.guard(link,SimpleNamespace(),start)
+        link.master.mav.set_position_target_local_ned_send.assert_not_called()
+
+    def test_predictive_ceiling_stops_even_below_abort_height(self):
+        link,values=self.range_link(166,z=-1.6)
+        values['LOCAL_POSITION_NED'].vz=-.5
+        with self.assertRaisesRegex(mission.flight.FlightError,'Predictive ceiling'):
+            mission.RangeTracking().command(link,mission.TakeoffReference(0,0,0,.06),0,0,0)
+        link.master.mav.set_position_target_local_ned_send.assert_not_called()
+
+    def test_destination_gps_conversion_and_distance_rejection(self):
+        link,values=self.range_link(6)
+        values['GLOBAL_POSITION_INT']=SimpleNamespace(lat=100000000,lon=760000000)
+        values['GPS_RAW_INT']=SimpleNamespace(fix_type=3)
+        start=mission.TakeoffReference(4,5,0,.06)
+        target=mission.destination(link,start,0,10.000009,76)
+        self.assertAlmostEqual(target[0]-4,1.00075,places=3);self.assertEqual(target[1],5)
+        with self.assertRaisesRegex(mission.flight.FlightError,'within 2 m'):mission.destination(link,start,0,10.001,76)
+        values['GPS_RAW_INT'].fix_type=2
+        with self.assertRaisesRegex(mission.flight.FlightError,'GPS'):mission.destination(link,start,0,10,76)
+
+    def test_hover_refuses_large_drift_stale_range_or_pilot_override(self):
+        for failure in ('drift','range','override'):
+            with self.subTest(failure=failure):
+                link,values=self.range_link(156,z=-2)
+                if failure=='drift':values['LOCAL_POSITION_NED'].x=.51
+                if failure=='range':values['DISTANCE_SENSOR']=None
+                health=mission.flight.PilotOverride('Pilot changed mode') if failure=='override' else None
+                with patch.object(mission.flight,'ensure_guided_health',side_effect=health),contextlib.redirect_stdout(io.StringIO()):
+                    with self.assertRaises(mission.flight.FlightError):
+                        mission.stabilize_launch(link,SimpleNamespace(),mission.TakeoffReference(0,0,0,.06),0,-2)
+                link.master.mav.set_position_target_local_ned_send.assert_not_called()
+
+    def test_hover_does_not_accept_stationary_offset_or_high_speed(self):
+        for x,vx in ((.25,0),(0,.25)):
+            link,values=self.range_link(156,z=-2)
+            values['LOCAL_POSITION_NED'].x=x;values['LOCAL_POSITION_NED'].vx=vx
+            clock=[0.0];link.pump.side_effect=lambda dt:clock.__setitem__(0,clock[0]+dt)
+            with patch.object(mission.time,'monotonic',side_effect=lambda:clock[0]),patch.object(mission.flight,'ensure_guided_health'),contextlib.redirect_stdout(io.StringIO()):
+                with self.assertRaisesRegex(mission.flight.FlightError,'did not stabilize'):
+                    mission.stabilize_launch(link,SimpleNamespace(),mission.TakeoffReference(0,0,0,.06),0,-2)
+
     def test_range_height_rejects_missing_wrong_orientation_and_invalid_readings(self):
-        link, values = self.range_link(206)
+        link, values = self.range_link(156)
         start = mission.TakeoffReference(0,0,0,.06)
-        self.assertAlmostEqual(mission.rangefinder_height(link,start),2)
+        self.assertAlmostEqual(mission.rangefinder_height(link,start),1.5)
         values["DISTANCE_SENSOR"].current_distance=65535
         with self.assertRaisesRegex(mission.flight.FlightError,"invalid"):
             mission.rangefinder_height(link,start)
-        values["DISTANCE_SENSOR"].current_distance=206
+        values["DISTANCE_SENSOR"].current_distance=156
         values["DISTANCE_SENSOR"].orientation=0
         with self.assertRaisesRegex(mission.flight.FlightError,"unavailable"):
             mission.rangefinder_height(link,start)
@@ -162,15 +299,14 @@ class FlightTests(unittest.TestCase):
         values["ATTITUDE"].roll=math.radians(10)
         self.assertAlmostEqual(mission.downward_range(link),2*math.cos(math.radians(10)))
 
-    def test_forward_preserves_local_height_at_range_confirmed_takeoff(self):
-        link, values = self.range_link(206,z=-.4)
-        values["LOCAL_POSITION_NED"].x=2
-        tick=iter(i / 10 for i in range(1000))
-        with patch.object(mission.time,"monotonic",side_effect=lambda:next(tick)), \
-                patch.object(mission.flight,"ensure_guided_health"), \
-                patch.object(mission,"send_target_hold_yaw") as target, contextlib.redirect_stdout(io.StringIO()):
+    def test_coordinate_travel_uses_range_feedback_when_local_z_is_wrong(self):
+        link,values=self.range_link(156,z=-.4)
+        values['LOCAL_POSITION_NED'].x=2
+        clock=[0.0];link.pump.side_effect=lambda dt:clock.__setitem__(0,clock[0]+dt)
+        with patch.object(mission.time,'monotonic',side_effect=lambda:clock[0]),patch.object(mission.flight,'ensure_guided_health'),contextlib.redirect_stdout(io.StringIO()):
             mission.move_forward(link,SimpleNamespace(),mission.TakeoffReference(0,0,0,.06),0,hold_down=-.4)
-        self.assertEqual(target.call_args.args[3],-.4)
+        args=link.master.mav.set_position_target_local_ned_send.call_args.args
+        self.assertEqual(args[4],0x09C7);self.assertAlmostEqual(args[10],0)
 
     def test_takeoff_reference_rejects_disarm(self):
         link = MagicMock()

@@ -11,6 +11,8 @@ python="$base/drone_project/pi_flight/.venv/bin/python"
 "$python" "$base/scripts/test_script_runs.py"
 "$python" "$base/scripts/test_pi_terminal.py"
 "$python" "$base/scripts/test_mavlink_hub.py"
+"$python" "$base/scripts/test_geofence.py"
+"$python" "$base/scripts/test_geofence_settings.py"
 for script in "$base"/scripts/*.sh "$base"/drone_project/pi_flight/*.sh; do
     bash -n "$script"
 done

@@ -21,6 +21,9 @@ The optional onboard AUTO backend is inactive and remains commissioning-locked.
 
 The organized [2 m flight and USB recording tools](scripts/flight_2m/README.md)
 live under `scripts/flight_2m/`. Flight recordings are saved in `video/`.
+The current mission holds a 1.5 m rangefinder rise, travels 2 m forward, returns
+to launch XY, then requests LAND. It uses live range-height feedback and early
+ceiling guards; these have not established a guaranteed physical height limit.
 Run `python3 scripts/video_gallery.py` and open **http://localhost:8080** to
 [browse and play recordings](scripts/video_gallery/README.md).
 
@@ -28,6 +31,9 @@ The [startup web dashboard](scripts/web/README.md) at **http://localhost:8070**
 links to the Pi/MAVProxy/Codex terminal (8071), videos (8080), OLED panel (8090),
 and QR receiver (5000), with a mobile flight-script page and live service status.
 Concurrent MAVLink clients use TCP 5760 locally or through Tailscale.
+The [geofence planner](scripts/web/README.md#map-geofence-planner) at `/geofence`
+shows live coordinates, supports editable boundaries with upload confirmation,
+and provides reviewed speed, altitude-fence, margin and breach-action controls.
 Install its boot services using `sudo python3 scripts/web/install_services.py --user user`.
 
 ## Install on a Pi 4B
@@ -106,10 +112,10 @@ must commission their own aircraft rather than inheriting this Pi's approvals.
 ```bash
 drone_project/pi_flight/.venv/bin/python -m pip install -r requirements-dev.txt
 bash scripts/test_all.sh
-python3 scripts/prepare_public_release.py
+python3 scripts/prepare_public_release.py --output /tmp/drone-public-release
 ```
 
-The exporter creates a new, clean `public-release/` directory without copying
+The exporter creates a new, clean snapshot directory (`public-release/` by default) without copying
 Git history, secrets, local configs, telemetry, backups, or recorded hardware
 identity/approvals. It refuses to overwrite an existing release and scans for
 common credential patterns. Review its output before publishing; automated

@@ -52,10 +52,10 @@ def candidates():
                 yield path, rel
 
 
-def export():
-    target = ROOT / 'public-release'
+def export(output=None):
+    target = Path(output).expanduser().resolve() if output else ROOT / 'public-release'
     if target.exists():
-        raise SystemExit('public-release already exists; preserve/review it or choose a fresh checkout.')
+        raise SystemExit(f'{target} already exists; preserve/review it or choose a fresh output directory.')
     files = list(candidates())
     # Check before creating/copying anything, including unexpectedly large files.
     for source, rel in files:
@@ -96,8 +96,9 @@ def upload_batch(start):
 if __name__ == '__main__':
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--upload-batch', type=int)
+    parser.add_argument('--output', help='New snapshot directory; defaults to public-release')
     args = parser.parse_args()
     if args.upload_batch is not None:
         upload_batch(args.upload_batch)
     else:
-        export()
+        export(args.output)

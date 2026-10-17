@@ -1,20 +1,10 @@
 #!/usr/bin/env python3
 """
-ArduCopter GUIDED flight.
-
-Sequence:
-  Preflight
-  GUIDED
-  Arm
-  Takeoff to 2m with COMMAND_ACK verification
-  Forward 2m while holding initial yaw
-  RTL
-  Monitor landing
-
-No mission upload.
-No fence upload.
-No home-distance preflight requirement.
-Retains flight-controller arming and navigation checks.
+Rangefinder-feedback GUIDED flight under a 2m measured-clearance ceiling.
+Capture launch XY/heading, bootstrap lift-off, climb to 1.5m with live range
+feedback, settle, fly to the destination, return to launch XY and LAND.
+Default destination is 2m forward; optional GPS coordinates must be within 2m.
+No flight mission or fence upload. FC arming/navigation checks remain active.
 """
 
 from __future__ import annotations
@@ -46,14 +36,26 @@ from flightcheck.telemetry import process_lock
 
 mav = flight.mavutil.mavlink
 
-HEIGHT = 2.0
+HEIGHT = 1.5
+MAX_CLEARANCE = 2.0
+ALTITUDE_ABORT = 1.85
+BOOTSTRAP_HEIGHT = 0.8
+VERTICAL_SPEED_LIMIT = 0.15
+HORIZONTAL_SPEED_LIMIT = 0.2
 DISTANCE = 2.0
 RADIUS = 3.0
 
 TAKEOFF_TIMEOUT = 35
 ACK_TIMEOUT = 5
 MOVEMENT_TIMEOUT = 50
-RTL_TIMEOUT = 180
+LAND_TIMEOUT = 180
+HOVER_TIMEOUT = 15
+TAKEOFF_DRIFT_LIMIT = 0.5
+HOVER_POSITION_TOLERANCE = 0.15
+HOVER_SPEED_TOLERANCE = 0.15
+HOLD_INTERVAL = 0.2
+CORRECTION_CLEARANCE = 0.3
+CORRECTION_CLEARANCE_SECONDS = 0.3
 
 
 class Link(flight.VehicleLink):
@@ -201,38 +203,71 @@ def guard(link, args, start):
 
     altitude = rangefinder_height(link, start)
 
-    if altitude > HEIGHT + 0.6:
+    clearance = altitude + start.ground_range_m
+    if clearance >= ALTITUDE_ABORT:
         raise flight.FlightError(
-            "Rangefinder altitude limit exceeded"
+            f"Rangefinder ceiling protection: clearance={clearance:.2f}m "
+            f">= {ALTITUDE_ABORT:.2f}m; 2m ceiling"
         )
 
 
-def send_target_hold_yaw(
-    link,
-    north,
-    east,
-    down,
-    yaw
-):
-    """
-    Position target with yaw target.
+class RangeTracking:
+    """Bounded velocity requests, using range height rather than a fixed EKF Z."""
+    def __init__(self):
+        self.previous = None
+        self.vertical_speed = 0.0  # Positive upward.
 
-    Does not command a yaw-rate rotation.
-    """
-    link.master.mav.set_position_target_local_ned_send(
-        0,
-        link.target_system,
-        link.target_component,
-        mav.MAV_FRAME_LOCAL_NED,
-        0x09F8,
-        north,
-        east,
-        down,
-        0, 0, 0,
-        0, 0, 0,
-        yaw,
-        0
-    )
+    def command(self, link, start, north, east, yaw):
+        local = get_local(link)
+        height = rangefinder_height(link, start)
+        now = time.monotonic()
+        cached = getattr(link, "latest", {})
+        sample_at = cached.get("DISTANCE_SENSOR", (None, now))[1] if isinstance(cached, dict) else now
+        if self.previous is None:
+            self.previous = (sample_at, height)
+        elif sample_at > self.previous[0]:
+            dt = sample_at - self.previous[0]
+            if 0.02 <= dt <= 1:
+                measured = (height - self.previous[1]) / dt
+                if not math.isfinite(measured) or abs(measured) > 3:
+                    raise flight.FlightError("Implausible rangefinder height change")
+                self.vertical_speed = .7*self.vertical_speed + .3*measured
+            self.previous = (sample_at, height)
+        clearance = height + start.ground_range_m
+        # Stop before the ceiling if measured climb momentum consumes the margin.
+        upward = max(0, self.vertical_speed, -local.vz)
+        predicted = clearance + .4*upward + upward*upward/(2*.3)
+        if clearance >= ALTITUDE_ABORT or predicted >= 1.95:
+            raise flight.FlightError(f"Predictive ceiling protection: clearance={clearance:.2f}m predicted={predicted:.2f}m")
+        vx = .6*(north-local.x) - .4*local.vx
+        vy = .6*(east-local.y) - .4*local.vy
+        speed = math.hypot(vx, vy)
+        if speed > HORIZONTAL_SPEED_LIMIT:
+            vx *= HORIZONTAL_SPEED_LIMIT/speed
+            vy *= HORIZONTAL_SPEED_LIMIT/speed
+        up = max(-VERTICAL_SPEED_LIMIT, min(VERTICAL_SPEED_LIMIT,
+                 .6*(HEIGHT-height)-.4*self.vertical_speed))
+        # MAVLink velocity-only control must include all three axes. NED Z is down.
+        link.master.mav.set_position_target_local_ned_send(
+            int(now*1000)&0xffffffff, link.target_system, link.target_component,
+            mav.MAV_FRAME_LOCAL_NED, 0x09C7, 0, 0, 0,
+            vx, vy, -up, 0, 0, 0, yaw, 0)
+        return height, self.vertical_speed, up
+
+
+def destination(link, start, yaw, latitude=None, longitude=None):
+    if latitude is None:
+        return start.x + DISTANCE*math.cos(yaw), start.y + DISTANCE*math.sin(yaw)
+    position = link.cached("GLOBAL_POSITION_INT", 1)
+    gps = link.cached("GPS_RAW_INT", 2)
+    if position is None or gps is None or gps.fix_type < 3:
+        raise flight.FlightError("Fresh 3D GPS required to convert destination coordinates")
+    lat = position.lat/1e7;lon = position.lon/1e7
+    north = math.radians(latitude-lat)*6371000
+    east = math.radians((longitude-lon+180)%360-180)*6371000*math.cos(math.radians(lat))
+    if math.hypot(north,east) > DISTANCE:
+        raise flight.FlightError("Destination must be within 2 m of the captured launch coordinates")
+    return start.x+north,start.y+east
 
 
 def takeoff_reference(link, timeout=3):
@@ -262,10 +297,10 @@ def takeoff_reference(link, timeout=3):
     return start, yaw
 
 
-def verified_takeoff(link, args, start):
+def verified_takeoff(link, args, start, yaw=None):
 
     print(
-        "Sending GUIDED TAKEOFF command: 2m",
+        "Sending GUIDED bootstrap TAKEOFF command: 0.8m; range-feedback target 1.5m",
         flush=True
     )
 
@@ -278,6 +313,12 @@ def verified_takeoff(link, args, start):
         raise flight.FlightError(
             "Cannot take off: heartbeat stale"
         )
+
+    if yaw is None:
+        attitude = link.cached("ATTITUDE", 1)
+        yaw = float(attitude.yaw) if attitude is not None else math.nan
+    if not math.isfinite(yaw):
+        raise flight.FlightError("Fresh initial heading required for takeoff correction")
 
     # Prevent reading an older takeoff acknowledgment.
     link.last_takeoff_ack = None
@@ -295,7 +336,7 @@ def verified_takeoff(link, args, start):
         math.nan,
         0,
         0,
-        HEIGHT
+        BOOTSTRAP_HEIGHT
     )
 
     print(
@@ -349,6 +390,10 @@ def verified_takeoff(link, args, start):
     deadline = time.monotonic() + TAKEOFF_TIMEOUT
     settled = None
     next_report = 0
+    clearance_since = None
+    correcting = False
+    tracker = RangeTracking()
+    next_correction = 0
 
     while time.monotonic() < deadline:
 
@@ -365,26 +410,45 @@ def verified_takeoff(link, args, start):
             local.y - start.y
         )
 
-        if drift > 0.5:
+        if drift > TAKEOFF_DRIFT_LIMIT:
             raise flight.FlightError(
                 f"Excessive takeoff drift: {drift:.2f}m > 0.50m; "
                 f"height={altitude:.2f}m"
             )
 
+        now = time.monotonic()
+        if not correcting:
+            if altitude >= CORRECTION_CLEARANCE:
+                if clearance_since is None:
+                    clearance_since = now
+                if now - clearance_since >= CORRECTION_CLEARANCE_SECONDS:
+                    correcting = True
+                    print("Ground clearance confirmed: launch XY and continuous range-height control", flush=True)
+            else:
+                clearance_since = None
+        if correcting and now >= next_correction:
+            tracker.command(link, start, start.x, start.y, yaw)
+            next_correction = now + HOLD_INTERVAL
+
         if time.monotonic() >= next_report:
             print(f"Takeoff: range_height={altitude:.2f}m drift={drift:.2f}m "
-                  f"horizontal_speed={math.hypot(local.vx, local.vy):.2f}m/s",
+                  f"horizontal_speed={math.hypot(local.vx, local.vy):.2f}m/s "
+                  f"local_z={local.z:.2f}m local_vz={local.vz:.2f}m/s "
+                  f"range_climb={tracker.vertical_speed:.2f}m/s target_height={HEIGHT:.2f}m",
                   flush=True)
             next_report = time.monotonic() + 1
 
-        if abs(altitude - HEIGHT) <= 0.2:
+        if (correcting and abs(altitude - HEIGHT) <= 0.1
+                and drift <= HOVER_POSITION_TOLERANCE
+                and math.hypot(local.vx, local.vy) <= HOVER_SPEED_TOLERANCE
+                and abs(local.vz) <= HOVER_SPEED_TOLERANCE):
 
             if settled is None:
                 settled = time.monotonic()
 
             if time.monotonic() - settled >= 2:
                 print(
-                    "Takeoff complete: rangefinder height reached and held for 2s",
+                    "Takeoff complete: 1.5m range height and launch XY stable for 2s",
                     flush=True
                 )
                 return float(local.z)
@@ -397,107 +461,54 @@ def verified_takeoff(link, args, start):
     )
 
 
-def move_forward(link, args, start, yaw, hold_down=None):
-
-    north = (
-        start.x + DISTANCE * math.cos(yaw)
-    )
-
-    east = (
-        start.y + DISTANCE * math.sin(yaw)
-    )
-
-    print(
-        "Moving forward 2m; holding initial heading",
-        flush=True
-    )
-
-    deadline = time.monotonic() + MOVEMENT_TIMEOUT
+def travel_to(link, args, start, yaw, north, east, label, timeout, launch_limit=False):
+    print(f"{label}: target N={north:.3f} E={east:.3f}; range height={HEIGHT:.2f}m", flush=True)
+    deadline = time.monotonic()+timeout
     settled = None
-
+    next_send = 0
+    next_report = 0
+    tracker = RangeTracking()
     while time.monotonic() < deadline:
-
-        link.pump(0.1)
-
-        guard(link, args, start)
-
-        send_target_hold_yaw(
-            link,
-            north,
-            east,
-            start.z - HEIGHT if hold_down is None else hold_down,
-            yaw
-        )
-
-        position = get_local(link)
-
-        altitude = rangefinder_height(link, start)
-
-        if abs(altitude - HEIGHT) > 0.6:
-            raise flight.FlightError(
-                "Altitude deviated during movement"
-            )
-
-        error = math.hypot(
-            position.x - north,
-            position.y - east
-        )
-
-        speed = math.hypot(
-            position.vx,
-            position.vy
-        )
-
-        if error <= 0.2 and speed <= 0.2:
-
-            if settled is None:
-                settled = time.monotonic()
-
-            if time.monotonic() - settled >= 2:
-                print(
-                    "Forward point reached",
-                    flush=True
-                )
-                return
-
-        else:
-            settled = None
-
-    raise flight.FlightError(
-        "Forward movement timeout"
-    )
+        link.pump(.1)
+        guard(link,args,start)
+        local = get_local(link)
+        height = rangefinder_height(link,start)
+        drift = math.hypot(local.x-start.x,local.y-start.y)
+        if launch_limit and drift > TAKEOFF_DRIFT_LIMIT:
+            raise flight.FlightError(f"Excessive launch hover drift: {drift:.2f}m > 0.50m")
+        if height < HEIGHT-.4:
+            raise flight.FlightError("Altitude deviated during coordinate travel")
+        now = time.monotonic()
+        if now >= next_send:
+            tracker.command(link,start,north,east,yaw);next_send=now+HOLD_INTERVAL
+        error = math.hypot(local.x-north,local.y-east)
+        speed = math.hypot(local.vx,local.vy)
+        if now >= next_report:
+            print(f"{label}: range_height={height:.2f}m target_error={error:.2f}m "
+                  f"horizontal_speed={speed:.2f}m/s local_z={local.z:.2f}m "
+                  f"local_vz={local.vz:.2f}m/s range_climb={tracker.vertical_speed:.2f}m/s", flush=True)
+            next_report=now+1
+        if abs(height-HEIGHT)<=.1 and error<=HOVER_POSITION_TOLERANCE and speed<=HOVER_SPEED_TOLERANCE and abs(local.vz)<=HOVER_SPEED_TOLERANCE:
+            if settled is None:settled=now
+            if now-settled>=2:
+                print(label+" stable for 2s",flush=True);return
+        else:settled=None
+    raise flight.FlightError(label+" did not stabilize; coordinate travel cancelled")
 
 
-def do_rtl(link):
+def stabilize_launch(link, args, start, yaw, hold_down=None):
+    # hold_down is accepted for compatibility; range feedback controls height.
+    travel_to(link,args,start,yaw,start.x,start.y,"Launch hover",HOVER_TIMEOUT,True)
 
-    print(
-        "Forward movement complete. Requesting RTL.",
-        flush=True
-    )
 
-    link.set_mode("RTL")
+def move_forward(link, args, start, yaw, hold_down=None, target=None):
+    # hold_down is accepted for compatibility; range feedback controls height.
+    north,east=target if target is not None else destination(link,start,yaw)
+    travel_to(link,args,start,yaw,north,east,"Destination",MOVEMENT_TIMEOUT)
 
-    print(
-        "RTL mode requested",
-        flush=True
-    )
 
-    deadline = time.monotonic() + RTL_TIMEOUT
-
-    while time.monotonic() < deadline:
-
-        link.pump(0.2)
-
-        if not link.is_armed():
-            print(
-                "RTL complete: landed and disarmed",
-                flush=True
-            )
-            return
-
-    raise flight.FlightError(
-        "RTL landing not confirmed within timeout"
-    )
+def return_launch(link, args, start, yaw):
+    travel_to(link,args,start,yaw,start.x,start.y,"Return to launch",MOVEMENT_TIMEOUT)
 
 
 def _main():
@@ -518,11 +529,19 @@ def _main():
     add_video_arguments(parser)
     parser.add_argument("--no-video", action="store_true", help="explicitly disable camera recording")
 
+    parser.add_argument("--target-latitude", type=float)
+    parser.add_argument("--target-longitude", type=float)
     options = parser.parse_args()
+    if (options.target_latitude is None) != (options.target_longitude is None):
+        parser.error("Provide both --target-latitude and --target-longitude")
+    if options.target_latitude is not None and not (
+        math.isfinite(options.target_latitude) and abs(options.target_latitude)<=85
+        and math.isfinite(options.target_longitude) and abs(options.target_longitude)<=180):
+        parser.error("Invalid destination coordinates")
 
     print(
         "Plan: preflight -> GUIDED -> arm -> "
-        "takeoff 2m -> forward 2m -> RTL"
+        "range-controlled takeoff 1.5m (2m ceiling) -> settle -> destination -> launch coordinates -> LAND"
     )
 
     if not options.execute:
@@ -543,8 +562,8 @@ def _main():
         max_preflight_tilt=8,
         min_battery_voltage=14.4,
         min_battery_remaining=30,
-        climb_rate=0.3,
-        forward_speed=0.3
+        climb_rate=VERTICAL_SPEED_LIMIT,
+        forward_speed=HORIZONTAL_SPEED_LIMIT
     )
 
     link = Link(options.connection)
@@ -561,16 +580,19 @@ def _main():
 
         flight.collect_preflight(link, args)
 
-        # RTL requires a valid home position.
+        # Keep a valid home for FC navigation/failsafe recovery.
         # No distance-to-home requirement is imposed.
         home = link.cached("HOME_POSITION", 3)
 
         if home is None:
             raise flight.FlightError(
-                "RTL requires a valid recorded home"
+                "Valid recorded home required for FC navigation/failsafes"
             )
 
         flight.run_prearm_checks(link)
+        if options.target_latitude is not None:
+            # Reject distant/invalid GPS destinations before arming or changing settings.
+            destination(link,get_local(link),0,options.target_latitude,options.target_longitude)
 
         (
             climb,
@@ -581,10 +603,20 @@ def _main():
             link, args
         )
 
-        for parameter, value in (
-            (climb, climb_value),
-            (horizontal, horizontal_value)
-        ):
+        # Keep native takeoff XY navigation active after lift-off. A delayed
+        # navigation threshold above 2 m would permit drift throughout ascent.
+        # Early velocity targets switch out of native TAKEOFF. Its deprecated
+        # takeoff-only auto-enable modes would otherwise be silently skipped.
+        auto_fence = link.get_parameter(("FENCE_AUTOENABLE",))
+        if auto_fence.value not in (0, 3):
+            raise flight.FlightError("FENCE_AUTOENABLE must be 0 or 3 for corrected takeoff; review fence activation before flight")
+        navigation = link.get_parameter(("WP_NAVALT_MIN",))
+        if not math.isfinite(navigation.value) or navigation.value < 0:
+            raise flight.FlightError("Invalid WP_NAVALT_MIN")
+        temporary = [(climb, climb_value), (horizontal, horizontal_value)]
+        if navigation.value != 0:
+            temporary.append((navigation, 0.0))
+        for parameter, value in temporary:
             saved.append(parameter)
             link.set_parameter(parameter, value)
 
@@ -604,31 +636,41 @@ def _main():
         flight.arm(link)
 
         start, yaw = takeoff_reference(link)
+        target = destination(link,start,yaw,options.target_latitude,options.target_longitude)
+        print(f"Launch coordinates: N={start.x:.3f} E={start.y:.3f}; destination N={target[0]:.3f} E={target[1]:.3f}",flush=True)
+        gps_position = link.cached("GLOBAL_POSITION_INT", 1)
+        if gps_position is not None and hasattr(gps_position,"lat"):
+            print(f"Launch GPS: {gps_position.lat/1e7:.7f}, {gps_position.lon/1e7:.7f}",flush=True)
 
         hold_down = verified_takeoff(
             link,
             args,
-            start
+            start,
+            yaw
         )
+
+        stabilize_launch(link, args, start, yaw, hold_down)
 
         move_forward(
             link,
             args,
             start,
             yaw,
-            hold_down
+            hold_down,
+            target
         )
 
-        # RTL is now responsible for navigation.
-        link.set_mode("RTL")
+        return_launch(link,args,start,yaw)
+        # LAND avoids RTL's configured climb; only the FC handles final descent.
+        link.set_mode("LAND")
         owned = False
 
         print(
-            "RTL active/requested; monitoring disarm",
+            "LAND requested at launch coordinates; monitoring disarm",
             flush=True
         )
 
-        deadline = time.monotonic() + RTL_TIMEOUT
+        deadline = time.monotonic() + LAND_TIMEOUT
 
         while time.monotonic() < deadline:
 
@@ -642,7 +684,7 @@ def _main():
                 return 0 if recorder is None or recorder.check() else 1
 
         raise flight.FlightError(
-            "RTL timeout: landing not confirmed"
+            "LAND timeout: landing not confirmed"
         )
 
     except flight.PilotOverride as error:

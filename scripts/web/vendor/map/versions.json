@@ -1,0 +1,10 @@
+{
+  "leaflet": {
+    "version": "1.9.4",
+    "integrity": "sha512-nxS1ynzJOmOlHp+iL3FyWqK89GtNL8U8rvlMOsQdTTssxZwCXh8N2NB3GDQOL+YR3XnWyZAxwQixURb+FA74PA=="
+  },
+  "@geoman-io/leaflet-geoman-free": {
+    "version": "2.20.2",
+    "integrity": "sha512-KQpSe0VKyuVCudq/08rMjJW1vvIwFldTwBny2wZ7ABcyyUAP7/eoFo967hCu9yRqAAHb4QOxC6gY5dGqttY68g=="
+  }
+}

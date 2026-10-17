@@ -42,8 +42,11 @@ Open **http://localhost:8070/scripts** or
 video, tap **Review & run script**, review the sequence, confirm that you are
 with the aircraft and ready to recover control, then tap **Arm & fly**.
 The current sequence is 3 s preflight plus a 3 s recheck, GUIDED, normal arm,
-2 m rangefinder-confirmed takeoff, 2 m forward, then RTL/land. Existing script
-checks apply; `opt_qua` is not a launch threshold. No fence is uploaded by
+bootstrap lift-off followed by live rangefinder control toward a 1.5 m rise,
+2 m forward, return to captured launch XY, then LAND. The 2 m ceiling is a
+software protection limit, not the target height or a guaranteed physical maximum.
+See the [flight behavior and guards](../flight_2m/README.md#recording-and-flight-behavior).
+Existing script checks apply; `opt_qua` is not a launch threshold. No fence is uploaded by
 this version. The script can move and spin the aircraft's motors.
 
 Only this allowlisted script is executable; there is no arbitrary shell or
@@ -298,3 +301,120 @@ Slow clients are disconnected instead of blocking other telemetry readers. It
 never queues commands for replay after an upstream outage. Network/serial faults,
 link bandwidth and conflicting operator commands can still interrupt operation;
 concurrent connectivity does not arbitrate simultaneous aircraft-control commands.
+
+## Map geofence planner
+
+Open `/geofence` on the dashboard (port 8070), locally or through Tailscale.
+The page displays fresh flight-controller GPS coordinates, relative altitude,
+home, GPS fix, and current fence parameters. It does not use the phone's GPS.
+Select **Draw polygon** or **Draw circle**, place the boundary, and use **Edit**
+to drag points/resize circles. Each boundary can be inclusion or exclusion.
+Circles also support an exact radius and manual latitude/longitude entry.
+**Clear drawing** changes only the browser draft. Drafts are saved locally in
+the browser; they are never uploaded automatically.
+
+**Read from controller** downloads only `MAV_MISSION_TYPE_FENCE` items.
+**Review and upload fence** replaces the fence list after explicit confirmation.
+It requires disarm and disabled enforcement, saves the previous boundaries in
+`video/.geofence/`, uploads MAVLink 2 `MISSION_ITEM_INT` items in response to FC
+requests, checks the final ACK, and downloads the fence to compare commands,
+vertex counts, radii and E7 coordinates. Timeouts, rejection, unsupported fields
+and mismatched readback are errors, never a successful upload. No flight mission
+or rally list is cleared. A failed transfer should be followed by a fresh read
+before retrying; stored boundaries may need recovery from the backup.
+
+Uploading boundaries and enabling enforcement are separate actions. The optional
+**Enable fence enforcement after verified upload** checkbox enables only after
+readback succeeds. **Enable on controller** operates on the downloaded controller
+fence, checks fresh 3D GPS/current permitted position, adds the polygon/circle-list
+bit to the existing `FENCE_TYPE`, then writes and reads back `FENCE_ENABLE`.
+**Disable enforcement** writes and verifies `FENCE_ENABLE=0` without erasing points.
+Existing altitude limits, home-circle radius, breach action and inclusion-union
+options are preserved. Fence writes and autonomous mission starts are mutually
+exclusive; normal telemetry and console access continue. Coordinate fence
+transfers with external QGC clients, which cannot participate in the local lock.
+
+A completion dialog appears only after the requesting browser receives the result.
+For uploads it confirms controller acceptance and matching downloaded boundaries,
+and separately states the saved fence enable setting. If upload succeeds but a
+later activation step fails, the dialog reports that partial outcome explicitly.
+
+**Speed and safety settings** reads supported parameters from the controller.
+Controls include navigation horizontal/climb/descent speed (`WP_SPD`,
+`WP_SPD_UP`, `WP_SPD_DN`, all m/s in ArduCopter 4.7), horizontal/vertical
+acceleration and jerk; ceiling/floor altitude and reference frames; the home
+circle radius; margins; configured fence-type bits; breach actions; automatic
+activation; inclusion union; and margin notifications. Unsupported values stay
+disabled. This allowlist uses ArduCopter 4.7 definitions and refuses writes on
+other firmware versions rather than guessing older parameter names or units.
+
+Positive maximum altitudes below the metadata recommendation of 10 m are
+accepted, matching firmware validation. The editor minimum is 0.1 m. A ceiling
+minus its margin is the navigation height limit; for example, 3 m with a 2 m
+margin leaves a 1 m navigation limit when the ceiling fence is active.
+
+Edit fields, select **Review and save settings**, check the before/after values,
+and select **Save and verify**. Disarm and disable fence enforcement first.
+Original values are backed up under `video/.geofence/`; each write is read back,
+and all changed values are checked again before reporting success. A changed
+original value from another client aborts the operation. Writes are sequential,
+not atomic: errors report already verified changes, and earlier values may have
+been saved. Refresh the controller values before retrying after any error.
+`FENCE_TOTAL`, arming checks and arbitrary parameters are not editable here.
+
+These speeds are navigation targets for relevant modes, not universal speed
+caps. The flight script temporarily sets horizontal/climb speed to 0.2/0.15 m/s
+and, when needed, `WP_NAVALT_MIN=0`; it restores prior values after fresh
+telemetry confirms disarm. Deferred restoration is reported in the run log. A vertical fence is referenced to the
+selected home, EKF origin, terrain or sea-level frame; it does not use the
+flight script's rangefinder takeoff height. The floor activates after reaching
+its height and can be disabled during landing. The saved `FENCE_ENABLE` value
+alone does not describe every runtime fence: auto-enable, RC and other GCS
+commands can alter activation. The page shows runtime geofence status when
+reported by `SYS_STATUS`. Terrain-relative fences need valid terrain data.
+
+The editor accepts at most 100 MAVLink fence items; the FC may support fewer.
+Self-intersecting/degenerate polygons and invalid/nonfinite coordinates are
+rejected before upload. Existing nonzero advanced inclusion-group fields are
+rejected rather than silently changed. Locations beyond latitude +/-85 degrees
+and polygons crossing the date line are not supported. QGC `.plan` import/export
+supports circles and polygons; missions/rally lists are not imported. The exported
+QGC file contains empty mission/rally lists, so load it as a fence plan in QGC.
+Plans containing a fence return point export as JSON to preserve that point.
+
+Leaflet 1.9.4 and Geoman Free 2.20.2 are bundled locally with upstream licenses
+and verified npm integrity in `vendor/map/versions.json`. They provide the web
+equivalent of QGC's circle/polygon controls; QGC itself uses a native Qt map UI.
+OpenStreetMap tiles need internet and keep visible attribution. Without tiles,
+drawing, local edits, coordinate entry, and MAVLink operations remain available.
+ArduPilot recommends at least a 30 m fence radius; tiny GPS fences can breach
+because of drift and do not provide precise indoor containment.
+
+MAVLink workers run in the flight venv through the shared TCP hub: source 240 for
+telemetry and 241 for fence transfers. They never open the UART. Worker processes
+exit with the dashboard; no queued operation is replayed after restart. The HTTP
+API uses the same Host/origin/action-token protections as script launching.
+
+References:
+- https://docs.qgroundcontrol.com/master/en/qgc-user-guide/plan_view/plan_geofence.html
+- https://docs.qgroundcontrol.com/Stable_V4.4/en/qgc-dev-guide/file_formats/plan.html
+- https://mavlink.io/en/services/mission.html
+- https://mavlink.io/en/messages/common.html#MAV_CMD_NAV_FENCE_POLYGON_VERTEX_INCLUSION
+- https://ardupilot.org/copter/docs/common-polygon_fence.html
+- https://raw.githubusercontent.com/ArduPilot/ardupilot/dbe79216/libraries/AC_Fence/AC_Fence.cpp
+- https://raw.githubusercontent.com/ArduPilot/ardupilot/dbe79216/libraries/AC_WPNav/AC_WPNav.cpp
+- https://leafletjs.com/
+- https://geoman.io/docs/leaflet/modes/draw-mode
+
+Offline geometry/protocol and simulated-controller wire tests:
+`drone_project/pi_flight/.venv/bin/python scripts/test_geofence.py`.
+Safety editor tests: `drone_project/pi_flight/.venv/bin/python scripts/test_geofence_settings.py`.
+The tests never upload to the real aircraft.
+
+Optional Chromium map interaction tests (install `playwright` and run
+`python3 -m playwright install chromium` in a development environment):
+`python3 -m unittest discover -s scripts -p test_geofence_browser.py`.
+These use fake telemetry/operations and cover desktop/mobile layout, mouse
+polygon drawing, touch circle drawing, editing, local drafts, QGC file roundtrips,
+confirmation/cancellation, cross-browser draft preservation, and GPS/armed gates.
+They do not submit any fence to the real aircraft.

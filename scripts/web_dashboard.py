@@ -17,6 +17,7 @@ from urllib.parse import urlsplit
 ASSETS = Path(__file__).with_name("web")
 sys.path.insert(0,str(ASSETS))
 from script_runs import ScriptRuns, RunConflict
+from geofence_service import GeofenceService
 
 
 def load_config(path):
@@ -58,11 +59,16 @@ def site_status(item):
 class DashboardServer(ThreadingHTTPServer):
     daemon_threads = True
 
-    def __init__(self, address, config, runs=None):
+    def __init__(self, address, config, runs=None, fences=None):
+        self.fences = fences or GeofenceService()
         self.config = config
         self.runs = runs or ScriptRuns()
         self.token = secrets.token_urlsafe(32)
         super().__init__(address, Handler)
+
+    def server_close(self):
+        self.fences.close()
+        super().server_close()
 
 
 class Handler(BaseHTTPRequestHandler):
@@ -92,7 +98,8 @@ class Handler(BaseHTTPRequestHandler):
         self.send_header('X-Content-Type-Options','nosniff')
         host=urlsplit('//'+self.headers.get('Host','localhost')).hostname or 'localhost'
         if ':' in host:host='['+host+']'
-        self.send_header('Content-Security-Policy',"default-src 'self'; script-src 'self'; style-src 'self'; frame-src http://"+host+":8071; frame-ancestors 'none'; base-uri 'none'")
+        map_policy="; img-src 'self' data: https://tile.openstreetmap.org; style-src 'self' 'unsafe-inline'" if self.path=='/geofence' else "; style-src 'self'"
+        self.send_header('Content-Security-Policy',"default-src 'self'; script-src 'self'"+map_policy+"; frame-src http://"+host+":8071; frame-ancestors 'none'; base-uri 'none'")
         self.end_headers()
         try:self.wfile.write(data)
         except (BrokenPipeError,ConnectionResetError):pass
@@ -105,10 +112,12 @@ class Handler(BaseHTTPRequestHandler):
             return
         try:
             length=int(self.headers.get('Content-Length','0'))
-            if not 0<length<=2048:raise ValueError('Invalid request size')
+            if not 0<length<=(65536 if self.path.startswith('/api/geofence/') else 2048):raise ValueError('Invalid request size')
             data=json.loads(self.rfile.read(length))
             if not isinstance(data,dict):raise ValueError('Invalid request')
-            if self.path=='/api/scripts/prepare':
+            if self.path.startswith('/api/geofence/'):
+                result=self.server.fences.launch(self.path.rsplit('/',1)[1],data)
+            elif self.path=='/api/scripts/prepare':
                 result=self.server.runs.prepare(data.get('script'),data.get('record_video'))
             elif self.path=='/api/scripts/run':
                 if not isinstance(data.get('ticket'),str):raise ValueError('Review the flight first')
@@ -129,6 +138,17 @@ class Handler(BaseHTTPRequestHandler):
                 '/dashboard.css':('dashboard.css','text/css; charset=utf-8'),
                 '/dashboard.js':('dashboard.js','text/javascript; charset=utf-8'),
                 '/scripts.js':('scripts.js','text/javascript; charset=utf-8')}
+        if self.path=='/api/geofence':
+            self.reply({'token':self.server.token,**self.server.fences.status()});return
+        if self.path.startswith('/map-assets/'):
+            name=self.path[len('/map-assets/'):];relative=Path(name)
+            if relative.is_absolute() or '..' in relative.parts or not re.fullmatch(r'[a-zA-Z0-9_./-]+',name):self.send_error(404);return
+            path=ASSETS/'vendor/map'/relative
+            if not path.is_file():self.send_error(404);return
+            kind={'.js':'text/javascript; charset=utf-8','.css':'text/css; charset=utf-8','.png':'image/png','.svg':'image/svg+xml'}.get(path.suffix)
+            if not kind:self.send_error(404);return
+            self.reply(path.read_bytes(),kind);return
+        assets.update({'/geofence':('geofence.html','text/html; charset=utf-8'),'/geofence.js':('geofence.js','text/javascript; charset=utf-8'),'/geofence.css':('geofence.css','text/css; charset=utf-8')})
         if self.path in assets:
             name,kind=assets[self.path]
             self.reply((ASSETS/name).read_bytes(),kind);return

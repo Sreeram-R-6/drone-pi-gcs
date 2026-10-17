@@ -4,21 +4,27 @@ The public repository is `https://github.com/Sreeram-R-6/drone-pi-gcs`.
 Publish a reviewed source snapshot there; do not send passwords/tokens in chat.
 GitHub CLI is not required when using an authenticated GitHub integration.
 
-Prepare and inspect a fresh snapshot:
+Prepare a fresh snapshot and clone the existing repository into a separate working
+copy. Choose new directories if either example path already exists:
 
 ```bash
-python3 scripts/prepare_public_release.py
-cd public-release
-git init -b main
+python3 scripts/prepare_public_release.py --output /tmp/drone-public-release
+git clone https://github.com/Sreeram-R-6/drone-pi-gcs.git /tmp/drone-pi-gcs-publish
+# Overlay the reviewed snapshot, preserving the clone's .git history.
+cp -a /tmp/drone-public-release/. /tmp/drone-pi-gcs-publish/
+cd /tmp/drone-pi-gcs-publish
 git add .
 git diff --cached --stat
 git diff --cached --check
 git status --short
-# Review contents, then use your own configured Git identity and credentials:
-git commit -m "Initial portable Pi GCS and OLED release"
-git remote add origin https://github.com/Sreeram-R-6/drone-pi-gcs.git
-git push -u origin main
+git commit -m "Update Pi GCS source and documentation"
+git push origin main
 ```
+
+Review files removed locally as well: overlay copying does not remove obsolete
+remote files. Stage any intended deletions explicitly. The exporter refuses to
+overwrite its output directory; keep older snapshots for comparison. Existing
+repository history is retained, and no force push is needed.
 
 This is a fresh source snapshot, not a push of the old `Drone-Sims` history.
 Local telemetry can contain GPS coordinates and aircraft identifiers; do not

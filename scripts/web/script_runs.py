@@ -41,7 +41,7 @@ class ScriptRuns:
             self.tickets[token] = {"expires": time.monotonic()+60, "record_video": record_video}
             return {"ticket": token, "expires_in": 60, "script": script,
                     "record_video": record_video,
-                    "sequence": "3 s preflight + 3 s recheck → GUIDED → arm → 2 m rangefinder-confirmed takeoff → 2 m forward → RTL/land"}
+                    "sequence": "3 s preflight + 3 s recheck → GUIDED → arm → 1.5 m range-feedback flight (2 m ceiling) → 2 m forward → launch coordinates → LAND"}
 
     @contextmanager
     def ownership(self):
